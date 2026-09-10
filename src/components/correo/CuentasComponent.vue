@@ -59,8 +59,13 @@ function sinLeerDe(cuenta: Cuenta): string {
           </button>
         </li>
       </ul>
-
-      <SalidaComponent :salientes="salientes" @descartar="emit('descartar', $event)" />
     </template>
+
+    <!-- **Fuera del bloque de las cuentas.** La cola es del servicio y no de
+         una cuenta: un mensaje trabado por una cuenta que después se borró
+         quedaba invisible, y con él el único botón para descartarlo. Que la
+         lista de cuentas esté vacía —o que no se haya podido leer— no puede
+         esconder correo que alguien escribió. -->
+    <SalidaComponent :salientes="salientes" @descartar="emit('descartar', $event)" />
   </aside>
 </template>

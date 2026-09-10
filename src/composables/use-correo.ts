@@ -278,11 +278,21 @@ export function useCorreo() {
 	 * que el servidor lo haya aceptado. Por eso la ventana se puede cerrar
 	 * enseguida sin perder nada.
 	 */
-	async function enviar(borrador: Borrador): Promise<boolean> {
+	async function enviar(accountId: string, borrador: Borrador): Promise<boolean> {
+		// **La cuenta viene por argumento y no de `elegida`.** Entre abrir la
+		// ventana de redacción y apretar «Enviar» se puede cambiar de casilla, y
+		// leer la elegida acá mandaría desde la otra: el mensaje sale con una
+		// dirección que no es la que se estaba mirando al escribirlo, y una
+		// respuesta se va con la identidad equivocada.
+		if (!cuentas.value.some((c) => c.account_id === accountId)) {
+			error.value = String(new Error('la cuenta desde la que escribiste ya no está'));
+			return false;
+		}
+
 		enviando.value = true;
 		error.value = '';
 		try {
-			await invoke<string>('enviar_mensaje', { accountId: elegida.value, borrador });
+			await invoke<string>('enviar_mensaje', { accountId, borrador });
 			await cargarSalida();
 			return true;
 		} catch (e) {

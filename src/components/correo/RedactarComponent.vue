@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
-import { computed, nextTick, onMounted, ref, useTemplateRef } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef } from 'vue';
 import type { Borrador } from '@/composables/use-correo';
 import { direcciones } from '@/tools/responder';
 
@@ -26,6 +26,16 @@ const cuerpo = ref(props.inicial.cuerpo);
 
 const campoCuerpo = useTemplateRef<HTMLTextAreaElement>('campoCuerpo');
 const campoPara = useTemplateRef<HTMLInputElement>('campoPara');
+const dialogo = useTemplateRef<HTMLElement>('dialogo');
+
+/**
+ * Adónde vuelve el foco al cerrar.
+ *
+ * Sin esto, cerrar la ventana deja el foco en el `body` y quien recorre con el
+ * teclado tiene que volver a atravesar la aplicación entera para llegar al
+ * botón que acaba de apretar.
+ */
+let devolverElFoco: HTMLElement | null = null;
 
 /**
  * Sin destinatario no hay nada que mandar, y el botón lo dice apagándose.
@@ -35,7 +45,15 @@ const campoPara = useTemplateRef<HTMLInputElement>('campoPara');
  */
 const sePuedeEnviar = computed(() => direcciones(para.value).length > 0 && !props.enviando);
 
-/** Si hay algo escrito que se perdería al cerrar. */
+/**
+ * Si hay algo escrito que se perdería al cerrar.
+ *
+ * Se compara con **lo que se abrió** y no con lo que está vacío, a propósito:
+ * una respuesta recién abierta ya trae destinatario, asunto y la cita, y
+ * preguntar por eso sería preguntar por algo que se rehace apretando
+ * «Responder» otra vez. Lo que no se puede rehacer es lo que la persona
+ * escribió, y eso es exactamente lo que difiere del punto de partida.
+ */
 const hayAlgoEscrito = computed(
 	() =>
 		para.value.trim() !== props.inicial.para.join(', ') ||
@@ -45,6 +63,7 @@ const hayAlgoEscrito = computed(
 );
 
 onMounted(async () => {
+	devolverElFoco = document.activeElement as HTMLElement | null;
 	await nextTick();
 	// El foco donde falta escribir: en una respuesta el destinatario y el
 	// asunto ya están, así que ir al cuerpo ahorra dos tabulaciones.
@@ -56,6 +75,36 @@ onMounted(async () => {
 		campoPara.value?.focus();
 	}
 });
+
+onUnmounted(() => devolverElFoco?.focus());
+
+/**
+ * Mantiene el foco adentro.
+ *
+ * Un diálogo modal que deja salir el foco con `Tab` es un diálogo modal a
+ * medias: quien recorre con el teclado termina apretando botones de la ventana
+ * de atrás, que están tapados y no responden a `Escape`. El ciclo se cierra a
+ * mano — `inert` sobre lo de atrás sería más limpio, pero depende de la versión
+ * del motor y esto anda en todas.
+ */
+function atraparElFoco(evento: KeyboardEvent) {
+	const dentro = dialogo.value?.querySelectorAll<HTMLElement>(
+		'input, textarea, button:not([disabled])'
+	);
+	if (!dentro || dentro.length === 0) {
+		return;
+	}
+	const primero = dentro[0];
+	const ultimo = dentro[dentro.length - 1];
+
+	if (evento.shiftKey && document.activeElement === primero) {
+		evento.preventDefault();
+		ultimo.focus();
+	} else if (!evento.shiftKey && document.activeElement === ultimo) {
+		evento.preventDefault();
+		primero.focus();
+	}
+}
 
 function enviar() {
 	if (!sePuedeEnviar.value) {
@@ -86,10 +135,12 @@ function cerrar() {
        aporta nada. `Escape` cierra, que es lo que la gente prueba. -->
   <div
     class="absolute inset-0 z-10 flex items-center justify-center bg-ui-bg/60 p-4"
+    ref="dialogo"
     role="dialog"
     aria-modal="true"
     :aria-label="esRespuesta ? t('redactar.tituloRespuesta') : t('redactar.titulo')"
-    @keydown.escape="cerrar()">
+    @keydown.escape="cerrar()"
+    @keydown.tab="atraparElFoco">
     <form
       class="flex max-h-full w-full max-w-2xl flex-col gap-2 rounded-corner border border-ui-border bg-ui-bg p-4 shadow-lg"
       @submit.prevent="enviar()">

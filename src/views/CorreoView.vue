@@ -33,6 +33,15 @@ const {
 /** El borrador abierto, o `null` si no hay ninguno. */
 const redactando = ref<Borrador | null>(null);
 const esRespuesta = ref(false);
+/**
+ * Desde qué cuenta se está escribiendo.
+ *
+ * Se guarda al abrir la ventana y no se vuelve a leer de `elegida`: entre
+ * escribir y apretar «Enviar» se puede cambiar de casilla, y el mensaje saldría
+ * desde la otra — con una dirección que no es la que se estaba mirando, y una
+ * respuesta con la identidad equivocada.
+ */
+const cuentaDelBorrador = ref('');
 
 const VACIO: Borrador = {
 	para: [],
@@ -45,6 +54,7 @@ const VACIO: Borrador = {
 
 function escribir() {
 	redactando.value = { ...VACIO };
+	cuentaDelBorrador.value = elegida.value;
 	esRespuesta.value = false;
 }
 
@@ -95,6 +105,7 @@ function responderAlAbierto() {
 		en_respuesta_a: respuesta.en_respuesta_a,
 		referencias: respuesta.referencias,
 	};
+	cuentaDelBorrador.value = elegida.value;
 	esRespuesta.value = true;
 }
 
@@ -102,7 +113,7 @@ async function enviarBorrador(borrador: Borrador) {
 	// La ventana se cierra **sólo si quedó guardado**. Un borrador que el
 	// servicio rechaza —una dirección mal escrita— tiene que seguir en pantalla
 	// con el error a la vista, o lo que se escribió se pierde.
-	if (await enviar(borrador)) {
+	if (await enviar(cuentaDelBorrador.value, borrador)) {
 		redactando.value = null;
 	}
 }
