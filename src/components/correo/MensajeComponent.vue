@@ -8,7 +8,7 @@ const props = defineProps<{
 	cuerpo: Abierto | null;
 	cargando: boolean;
 }>();
-const emit = defineEmits<{ marcarLeido: [uid: number] }>();
+const emit = defineEmits<{ marcarLeido: [uid: number]; responder: [] }>();
 
 const { t, locale } = useI18n();
 
@@ -49,8 +49,21 @@ const cuando = computed(() => {
           <span>{{ t('mensaje.cuando') }}: </span>{{ cuando }}
         </p>
 
-        <div v-if="abierto.sin_leer" class="pt-1">
+        <div class="flex gap-2 pt-1">
+          <!-- Responder sólo cuando el mensaje ya está traído: la respuesta
+               necesita el identificador del original y la cita del texto, y las
+               dos cosas vienen con el cuerpo. Un botón que a veces arma una
+               respuesta a medias es peor que un botón que aparece un segundo
+               después. -->
           <button
+            v-if="cuerpo"
+            type="button"
+            class="rounded-corner bg-primary px-2 py-0.5 text-sm text-tx-on-primary"
+            @click="emit('responder')">
+            {{ t('redactar.responder') }}
+          </button>
+          <button
+            v-if="abierto.sin_leer"
             type="button"
             class="rounded-corner border border-ui-border-strong px-2 py-0.5 text-sm hover:bg-ui-surface"
             @click="emit('marcarLeido', abierto.uid)">

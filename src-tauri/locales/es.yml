@@ -41,3 +41,33 @@ mensaje:
   # pierde el archivo.
   adjuntos: Este mensaje trae un archivo adjunto, y esta versión todavía no los abre.
   soloTexto: Se muestra el texto del mensaje. El formato y las imágenes no se cargan.
+redactar:
+  nuevo: Escribir
+  responder: Responder
+  titulo: Mensaje nuevo
+  tituloRespuesta: Responder
+  para: Para
+  cc: Cc
+  asunto: Asunto
+  cuerpo: Mensaje
+  # Varias direcciones separadas por coma; el punto y coma también sirve.
+  variasDirecciones: Separá varias con comas
+  enviar: Enviar
+  enviando: Poniendo en la cola…
+  cancelar: Cancelar
+  # `t()` no interpola: el marcador se reemplaza a mano. Ver el README.
+  citado: "El {0}, {1} escribió:"
+  # Se dice porque no es obvio y cambia lo que la persona espera del botón.
+  seEncola: El mensaje se guarda y sale en cuanto se pueda. Podés cerrar la ventana.
+  descartarBorrador: ¿Descartar lo que escribiste?
+salida:
+  titulo: Sin enviar
+  # `t()` no interpola. Ver el README.
+  esperandoOne: "{0} esperando salir"
+  esperandoOther: "{0} esperando salir"
+  trabado: No se pudo enviar
+  reintentandoOne: "{0} intento"
+  reintentandoOther: "{0} intentos"
+  descartar: Descartar
+  confirmarDescartar: Se pierde lo que escribiste. ¿Descartarlo igual?
+  sinAsunto: (sin asunto)

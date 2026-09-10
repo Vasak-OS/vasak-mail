@@ -1,10 +1,15 @@
 <script lang="ts" setup>
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
-import type { Cuenta } from '@/composables/use-correo';
+import SalidaComponent from '@/components/correo/SalidaComponent.vue';
+import type { Cuenta, Saliente } from '@/composables/use-correo';
 import { claveSegunCantidad, interpolar } from '@/tools/interpolar';
 
-defineProps<{ cuentas: Cuenta[]; elegida: string }>();
-const emit = defineEmits<{ elegir: [accountId: string] }>();
+defineProps<{ cuentas: Cuenta[]; elegida: string; salientes: Saliente[] }>();
+const emit = defineEmits<{
+	elegir: [accountId: string];
+	escribir: [];
+	descartar: [id: string];
+}>();
 
 const { t } = useI18n();
 
@@ -23,6 +28,13 @@ function sinLeerDe(cuenta: Cuenta): string {
     </div>
 
     <template v-else>
+      <button
+        type="button"
+        class="rounded-corner bg-primary px-2 py-1 text-sm text-tx-on-primary"
+        @click="emit('escribir')">
+        {{ t('redactar.nuevo') }}
+      </button>
+
       <h2 class="font-medium text-tx-muted text-xs uppercase">{{ t('cuentas.titulo') }}</h2>
       <ul class="flex flex-col gap-1">
         <li v-for="cuenta in cuentas" :key="cuenta.account_id">
@@ -48,5 +60,12 @@ function sinLeerDe(cuenta: Cuenta): string {
         </li>
       </ul>
     </template>
+
+    <!-- **Fuera del bloque de las cuentas.** La cola es del servicio y no de
+         una cuenta: un mensaje trabado por una cuenta que después se borró
+         quedaba invisible, y con él el único botón para descartarlo. Que la
+         lista de cuentas esté vacía —o que no se haya podido leer— no puede
+         esconder correo que alguien escribió. -->
+    <SalidaComponent :salientes="salientes" @descartar="emit('descartar', $event)" />
   </aside>
 </template>

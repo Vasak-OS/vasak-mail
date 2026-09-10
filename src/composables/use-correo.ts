@@ -29,6 +29,33 @@ export interface Abierto {
 	texto: string;
 	recortado: boolean;
 	adjuntos: boolean;
+	/** El identificador del original, para enganchar la respuesta al hilo. */
+	message_id: string;
+	referencias: string[];
+	/** A dónde va la respuesta: el `Reply-To` si lo hay, el remitente si no. */
+	responder_a: string;
+	nombre: string;
+}
+
+/** Lo que se escribe. **Sin el remitente**: lo pone el servicio. */
+export interface Borrador {
+	para: string[];
+	cc: string[];
+	asunto: string;
+	cuerpo: string;
+	en_respuesta_a: string;
+	referencias: string[];
+}
+
+/** Un mensaje esperando salir. */
+export interface Saliente {
+	id: string;
+	account_id: string;
+	borrador: Borrador;
+	intentos: number;
+	/** `pendiente` o `trabado`. */
+	estado: string;
+	ultimo_error: string;
 }
 
 /**
@@ -46,6 +73,8 @@ export function useCorreo() {
 	const abierto = ref<Resumen | null>(null);
 	const cuerpo = ref<Abierto | null>(null);
 
+	const salientes = ref<Saliente[]>([]);
+	const enviando = ref(false);
 	const cargandoLista = ref(false);
 	const cargandoMensaje = ref(false);
 	/** Lo que impidió leer algo, en el idioma de lo que la persona puede hacer. */
@@ -64,7 +93,23 @@ export function useCorreo() {
 	/** Los «marcar como leído» que todavía están viajando. */
 	const marcando = new Set<string>();
 
+	/**
+	 * Lo que está esperando salir.
+	 *
+	 * Aparte de las cuentas y sin tirar la lista si falla: la cola es del
+	 * servicio y no de una cuenta, y no poder leerla no puede impedir leer el
+	 * correo que sí llegó.
+	 */
+	async function cargarSalida() {
+		try {
+			salientes.value = await invoke<Saliente[]>('listar_salientes');
+		} catch (e) {
+			console.error('no se pudo leer la cola de salida', e);
+		}
+	}
+
 	async function cargarCuentas() {
+		await cargarSalida();
 		try {
 			const nuevas = await invoke<Cuenta[]>('listar_cuentas');
 			cuentas.value = nuevas;
@@ -225,8 +270,59 @@ export function useCorreo() {
 		}
 	}
 
+	/**
+	 * Pone el mensaje en la cola.
+	 *
+	 * Vuelve `true` si quedó guardado. El envío pasa después: lo que este
+	 * `await` espera es que el mensaje esté a salvo en el disco del servicio, no
+	 * que el servidor lo haya aceptado. Por eso la ventana se puede cerrar
+	 * enseguida sin perder nada.
+	 */
+	async function enviar(accountId: string, borrador: Borrador): Promise<boolean> {
+		// **La cuenta viene por argumento y no de `elegida`.** Entre abrir la
+		// ventana de redacción y apretar «Enviar» se puede cambiar de casilla, y
+		// leer la elegida acá mandaría desde la otra: el mensaje sale con una
+		// dirección que no es la que se estaba mirando al escribirlo, y una
+		// respuesta se va con la identidad equivocada.
+		if (!cuentas.value.some((c) => c.account_id === accountId)) {
+			error.value = String(new Error('la cuenta desde la que escribiste ya no está'));
+			return false;
+		}
+
+		enviando.value = true;
+		error.value = '';
+		try {
+			await invoke<string>('enviar_mensaje', { accountId, borrador });
+			await cargarSalida();
+			return true;
+		} catch (e) {
+			// Un borrador que no se puede armar —una dirección mal escrita—
+			// vuelve en el acto, que es cuando la persona todavía lo tiene en
+			// pantalla. Se muestra y **la ventana no se cierra**.
+			error.value = String(e);
+			return false;
+		} finally {
+			enviando.value = false;
+		}
+	}
+
+	/** Saca un mensaje de la cola. Se pierde lo escrito. */
+	async function descartarSaliente(id: string) {
+		try {
+			await invoke('descartar_saliente', { id });
+			await cargarSalida();
+		} catch (e) {
+			error.value = String(e);
+		}
+	}
+
 	return {
 		cuentas,
+		salientes,
+		enviando,
+		enviar,
+		descartarSaliente,
+		cargarSalida,
 		elegida,
 		mensajes,
 		abierto,
