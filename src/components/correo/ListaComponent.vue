@@ -39,10 +39,17 @@ const hayAlgo = computed(() => props.mensajes.length > 0);
           <div class="flex w-full items-baseline gap-2">
             <!-- Sin leer se marca con el punto **y** con la negrita: el color
                  solo no se ve si no se distinguen los colores (WCAG 1.4.1), y
-                 esto es lo que separa lo que falta leer de lo que no. -->
+                 esto es lo que separa lo que falta leer de lo que no.
+
+                 Con `role="img"`, que no es decoración: un `aria-label` sobre un
+                 `span` pelado **no se expone**, porque un elemento sin rol no
+                 admite nombre accesible. Sin el rol, el punto y el clip eran
+                 invisibles para un lector de pantalla y toda la marca de «sin
+                 leer» quedaba puesta en el color. -->
             <span
               v-if="mensaje.sin_leer"
               class="h-2 w-2 shrink-0 rounded-full bg-primary"
+              role="img"
               :aria-label="t('lista.noLeido')"></span>
             <span
               class="flex-1 truncate text-sm"
@@ -62,6 +69,7 @@ const hayAlgo = computed(() => props.mensajes.length > 0);
               v-if="mensaje.con_adjuntos"
               class="shrink-0 text-tx-muted text-xs"
               :title="t('lista.conAdjuntos')"
+              role="img"
               :aria-label="t('lista.conAdjuntos')">📎</span>
           </div>
         </button>

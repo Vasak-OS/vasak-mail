@@ -24,19 +24,39 @@ const {
 } = useCorreo();
 
 let dejarDeEscuchar: UnlistenFn | null = null;
+/**
+ * Si la vista ya se desmontó.
+ *
+ * `onMounted` es asíncrono: `onUnmounted` puede correr **mientras** las promesas
+ * de acá adentro siguen pendientes, y ahí `dejarDeEscuchar` todavía es `null`.
+ * Sin esta marca, el `listen` terminaba después del desmontaje, nadie lo
+ * cancelaba, y quedaba un oyente llamando a `cargarCuentas()` sobre un
+ * composable descartado — uno más en cada ciclo de montar y desmontar.
+ */
+let desmontada = false;
 
 onMounted(async () => {
-	await cargarCuentas();
-	// El sincronizador avisa cuando llega correo. Sin esto habría que apretar
-	// «Actualizar» para enterarse de algo que el servicio ya sabe.
+	// El oyente **antes** de la primera carga. El sincronizador avisa cuando
+	// llega correo; enganchándose después, un aviso que llegue durante esos dos
+	// segundos se pierde y la lista queda vieja hasta el siguiente.
 	try {
-		dejarDeEscuchar = await listen('correo-cambio', () => cargarCuentas());
+		const cancelar = await listen('correo-cambio', () => cargarCuentas());
+		if (desmontada) {
+			cancelar();
+		} else {
+			dejarDeEscuchar = cancelar;
+		}
 	} catch (e) {
 		console.error('no se pudo escuchar los avisos de correo nuevo', e);
 	}
+
+	await cargarCuentas();
 });
 
-onUnmounted(() => dejarDeEscuchar?.());
+onUnmounted(() => {
+	desmontada = true;
+	dejarDeEscuchar?.();
+});
 </script>
 
 <template>

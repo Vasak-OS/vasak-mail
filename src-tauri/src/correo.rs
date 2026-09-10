@@ -153,17 +153,34 @@ pub const EVENTO: &str = "correo-cambio";
 /// reconciliar avisos que se pueden perder.
 pub fn escuchar(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = seguir(&app).await {
-            // Que no se pueda escuchar no rompe nada: el botón de actualizar
-            // sigue estando. Queda dicho para que no parezca que el correo nuevo
-            // no llega por otro motivo.
-            // A stderr, que en una sesión de escritorio termina en el diario
-            // del sistema. El plugin del diario cubre los pánicos; esto no lo
-            // es —la ventana sigue andando— y aun así hay que poder verlo.
-            eprintln!("[correo] no se pueden recibir avisos de correo nuevo: {e}");
+        // **En bucle, no una sola vez.** El bus de sesión se puede cortar —se
+        // reinicia el servicio, se reinicia el bus— y con un solo intento la
+        // ventana se quedaba sin avisos hasta que alguien cerrara y volviera a
+        // abrir la aplicación. El síntoma sería correo que deja de aparecer solo
+        // y nada que lo explique.
+        loop {
+            if let Err(e) = seguir(&app).await {
+                // Que no se pueda escuchar no rompe nada: el botón de actualizar
+                // sigue estando. Queda dicho para que no parezca que el correo
+                // nuevo no llega por otro motivo.
+                //
+                // A stderr, que en una sesión de escritorio termina en el diario
+                // del sistema. El plugin del diario cubre los pánicos; esto no
+                // lo es —la ventana sigue andando— y aun así hay que poder verlo.
+                eprintln!("[correo] no se pueden recibir avisos de correo nuevo: {e}");
+            }
+            // Con espera, o un bus que no está recibe un intento por milisegundo
+            // y la ventana gasta más batería reconectando que mostrando correo.
+            tokio::time::sleep(ESPERA_ENTRE_INTENTOS).await;
         }
     });
 }
+
+/// Cuánto se espera antes de volver a engancharse a los avisos.
+///
+/// Quince segundos: corto para que reconectar no se note, y largo para no
+/// martillar un bus que no está.
+const ESPERA_ENTRE_INTENTOS: std::time::Duration = std::time::Duration::from_secs(15);
 
 async fn seguir(app: &tauri::AppHandle) -> Result<(), String> {
     use futures_util::StreamExt;

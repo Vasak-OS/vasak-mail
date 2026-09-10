@@ -61,6 +61,8 @@ export function useCorreo() {
 	 */
 	let listaVigente = 0;
 	let mensajeVigente = 0;
+	/** Los «marcar como leído» que todavía están viajando. */
+	const marcando = new Set<string>();
 
 	async function cargarCuentas() {
 		try {
@@ -176,6 +178,17 @@ export function useCorreo() {
 	 * los errores más molestos que puede tener un cliente de correo.
 	 */
 	async function marcarLeido(uid: number) {
+		// Uno por vez y por mensaje. El botón sigue activo mientras el comando
+		// viaja, así que dos clics rápidos mandan el mismo `uid` dos veces; el
+		// servidor lo aguanta —marcar dos veces lo leído no hace nada— pero acá
+		// se restaba uno al contador de la cuenta cada vez, y la cuenta quedaba
+		// diciendo menos correo sin leer del que tiene.
+		const enCurso = `${elegida.value}:${uid}`;
+		if (marcando.has(enCurso)) {
+			return;
+		}
+		marcando.add(enCurso);
+
 		try {
 			await invoke('marcar_leido', { accountId: elegida.value, uid });
 			const mensaje = mensajes.value.find((m) => m.uid === uid);
@@ -193,6 +206,8 @@ export function useCorreo() {
 			}
 		} catch (e) {
 			error.value = String(e);
+		} finally {
+			marcando.delete(enCurso);
 		}
 	}
 
