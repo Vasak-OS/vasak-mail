@@ -9,13 +9,35 @@ _version: 1
 #  2. Los dos idiomas tienen que tener las **mismas claves** y los mismos
 #     marcadores `{0}`. Hay un test que lo verifica.
 app:
-  nombre: Aplicación Vasak
+  nombre: Correo
 ventana:
   minimizar: Minimizar
   maximizar: Maximizar
   cerrar: Cerrar
-inicio:
-  titulo: Hola, VasakOS
-  descripcion: Esta es la plantilla. Reemplazá esta pantalla por la tuya.
+cuentas:
+  titulo: Cuentas
+  sinCuentasTitulo: Todavía no hay ninguna casilla
+  sinCuentasDescripcion: Conectá una cuenta de correo desde Configuración y sus mensajes aparecen acá.
   # `t()` no interpola: el marcador se reemplaza a mano. Ver el README.
-  saludo: "Hola, {0}"
+  sinLeerOne: "{0} sin leer"
+  sinLeerOther: "{0} sin leer"
+  noSePudo: No se pudo leer esta cuenta
+lista:
+  cargando: Buscando correo…
+  actualizar: Actualizar
+  vacia: No hay nada en esta casilla
+  sinAsunto: (sin asunto)
+  sinFecha: Sin fecha
+  conAdjuntos: Trae un archivo
+  noLeido: Sin leer
+mensaje:
+  elegiUno: Elegí un mensaje para leerlo
+  de: De
+  cuando: Cuándo
+  marcarLeido: Marcar como leído
+  # Se dice, en vez de dejar el texto terminado a la mitad sin explicación.
+  recortado: El mensaje sigue. Esta versión trae sólo el principio.
+  # Y esto también: quien lee un mensaje y no se entera de que traía un archivo,
+  # pierde el archivo.
+  adjuntos: Este mensaje trae un archivo adjunto, y esta versión todavía no los abre.
+  soloTexto: Se muestra el texto del mensaje. El formato y las imágenes no se cargan.

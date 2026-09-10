@@ -3,6 +3,8 @@
 //! Lo que hay acá no es decoración: cada pieza resuelve algo que en las
 //! aplicaciones reales del escritorio se rompió al menos una vez.
 
+mod comandos;
+mod correo;
 mod locales;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -28,6 +30,18 @@ pub fn run() {
         .plugin(tauri_plugin_config_manager::init())
         .plugin(tauri_plugin_vicons::init())
         .plugin(tauri_plugin_shell::init())
+        .invoke_handler(tauri::generate_handler![
+            comandos::listar_cuentas,
+            comandos::listar_mensajes,
+            comandos::abrir_mensaje,
+            comandos::marcar_leido,
+        ])
+        // El sincronizador avisa cuando llega correo; esto lo traduce a un
+        // evento que la ventana escucha. Ver `correo.rs`.
+        .setup(|app| {
+            correo::escuchar(app.handle().clone());
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error al ejecutar la aplicación");
 }

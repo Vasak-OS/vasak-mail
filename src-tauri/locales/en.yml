@@ -1,11 +1,30 @@
 _version: 1
 app:
-  nombre: Vasak Application
+  nombre: Mail
 ventana:
   minimizar: Minimise
   maximizar: Maximise
   cerrar: Close
-inicio:
-  titulo: Hello, VasakOS
-  descripcion: This is the template. Replace this screen with your own.
-  saludo: "Hello, {0}"
+cuentas:
+  titulo: Accounts
+  sinCuentasTitulo: No mailboxes yet
+  sinCuentasDescripcion: Connect a mail account from Settings and its messages will show up here.
+  sinLeerOne: "{0} unread"
+  sinLeerOther: "{0} unread"
+  noSePudo: This account could not be read
+lista:
+  cargando: Looking for mail…
+  actualizar: Refresh
+  vacia: Nothing in this mailbox
+  sinAsunto: (no subject)
+  sinFecha: No date
+  conAdjuntos: Has an attachment
+  noLeido: Unread
+mensaje:
+  elegiUno: Pick a message to read it
+  de: From
+  cuando: When
+  marcarLeido: Mark as read
+  recortado: There is more to this message. This version only fetches the beginning.
+  adjuntos: This message has an attachment, and this version does not open them yet.
+  soloTexto: The message text is shown. Formatting and images are not loaded.
