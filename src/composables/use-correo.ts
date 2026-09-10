@@ -178,31 +178,45 @@ export function useCorreo() {
 	 * los errores más molestos que puede tener un cliente de correo.
 	 */
 	async function marcarLeido(uid: number) {
+		// **La cuenta se captura acá y no se vuelve a leer.** Entre el pedido y
+		// su respuesta la persona puede haber cambiado de casilla, y usar
+		// `elegida.value` del otro lado del `await` marcaba como leído el
+		// mensaje 7 de la cuenta que quedó a la vista en vez del de la cuenta a
+		// la que se le pidió — y le restaba uno a su contador.
+		const cuentaId = elegida.value;
+
 		// Uno por vez y por mensaje. El botón sigue activo mientras el comando
 		// viaja, así que dos clics rápidos mandan el mismo `uid` dos veces; el
 		// servidor lo aguanta —marcar dos veces lo leído no hace nada— pero acá
-		// se restaba uno al contador de la cuenta cada vez, y la cuenta quedaba
-		// diciendo menos correo sin leer del que tiene.
-		const enCurso = `${elegida.value}:${uid}`;
+		// se restaba uno al contador cada vez, y la cuenta quedaba diciendo
+		// menos correo sin leer del que tiene.
+		const enCurso = `${cuentaId}:${uid}`;
 		if (marcando.has(enCurso)) {
 			return;
 		}
 		marcando.add(enCurso);
 
 		try {
-			await invoke('marcar_leido', { accountId: elegida.value, uid });
+			await invoke('marcar_leido', { accountId: cuentaId, uid });
+
+			// El contador de **esa** cuenta, esté a la vista o no: el mensaje se
+			// leyó igual.
+			const cuenta = cuentas.value.find((c) => c.account_id === cuentaId);
+			if (cuenta && cuenta.sin_leer > 0) {
+				cuenta.sin_leer -= 1;
+			}
+
+			// Lo que se ve, en cambio, sólo si sigue siendo lo que se ve. La
+			// lista de mensajes es la de la casilla abierta ahora.
+			if (elegida.value !== cuentaId) {
+				return;
+			}
 			const mensaje = mensajes.value.find((m) => m.uid === uid);
 			if (mensaje) {
 				mensaje.sin_leer = false;
 			}
 			if (abierto.value?.uid === uid) {
 				abierto.value = { ...abierto.value, sin_leer: false };
-			}
-			// El contador de la cuenta también, para que no quede diciendo un
-			// número que ya no es. La próxima vuelta del servicio lo confirma.
-			const cuenta = cuentas.value.find((c) => c.account_id === elegida.value);
-			if (cuenta && cuenta.sin_leer > 0) {
-				cuenta.sin_leer -= 1;
 			}
 		} catch (e) {
 			error.value = String(e);
