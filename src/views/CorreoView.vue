@@ -65,7 +65,7 @@ function responderAlAbierto() {
 		: '';
 	const encabezado = interpolar(t('redactar.citado'), fecha, abierto.value.de);
 
-	redactando.value = armarRespuesta(
+	const respuesta = armarRespuesta(
 		{
 			asunto: abierto.value.asunto,
 			texto: cuerpo.value.texto,
@@ -76,8 +76,25 @@ function responderAlAbierto() {
 			referencias: cuerpo.value.referencias,
 		},
 		encabezado
-	) as Borrador;
-	redactando.value.cc = [];
+	);
+
+	// Campo por campo y no con un `as`: `armarRespuesta` no devuelve un
+	// borrador, le falta el `cc`. Convencer al compilador de que sí lo es y
+	// agregárselo en la línea siguiente es pedirle que no mire justo donde
+	// hay que mirar — el día que el borrador tenga un campo más, el `as` lo
+	// deja sin inicializar y nada avisa.
+	//
+	// **Responder no copia el `Cc`.** Sería «responder a todos», que es otra
+	// cosa y otro botón: hacerlo por omisión manda la respuesta a gente que no
+	// se eligió, y eso no se deshace.
+	redactando.value = {
+		para: respuesta.para,
+		cc: [],
+		asunto: respuesta.asunto,
+		cuerpo: respuesta.cuerpo,
+		en_respuesta_a: respuesta.en_respuesta_a,
+		referencias: respuesta.referencias,
+	};
 	esRespuesta.value = true;
 }
 
