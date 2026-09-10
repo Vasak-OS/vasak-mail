@@ -2,7 +2,7 @@
 //!
 //! Una capa fina sobre `correo.rs`: todo el trabajo lo hace el sincronizador.
 
-use crate::correo::{self, Abierto, Cuenta, Resumen};
+use crate::correo::{self, Abierto, Borrador, Cuenta, Resumen, Saliente};
 
 /// Las cuentas con correo, y cuánto tienen sin leer.
 #[tauri::command]
@@ -26,4 +26,23 @@ pub async fn abrir_mensaje(account_id: String, uid: u32) -> Result<Abierto, Stri
 #[tauri::command]
 pub async fn marcar_leido(account_id: String, uid: u32) -> Result<(), String> {
     correo::marcar_leido(&account_id, uid).await
+}
+
+/// Pone un mensaje en la cola de salida.
+#[tauri::command]
+pub async fn enviar_mensaje(account_id: String, borrador: Borrador) -> Result<String, String> {
+    correo::enviar(&account_id, &borrador).await
+}
+
+/// Lo que está esperando salir.
+#[tauri::command]
+pub async fn listar_salientes() -> Result<Vec<Saliente>, String> {
+    correo::salientes().await
+}
+
+/// Saca un mensaje de la cola sin mandarlo. **Se pierde lo escrito**, así que la
+/// ventana tiene que preguntar antes.
+#[tauri::command]
+pub async fn descartar_saliente(id: String) -> Result<(), String> {
+    correo::descartar(&id).await
 }

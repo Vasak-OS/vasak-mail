@@ -37,17 +37,48 @@ perder.
 ## Qué hace hoy, y qué no
 
 **Hace:** lista las cuentas con su contador de sin leer, muestra los últimos 200
-mensajes de la casilla de entrada, abre uno y muestra su texto, y lo marca como
-leído en el servidor cuando la persona lo pide.
+mensajes de la casilla de entrada, abre uno y muestra su texto, lo marca como
+leído en el servidor cuando la persona lo pide, y **escribe y responde**.
 
 **Todavía no hace:**
 
-- **Escribir ni responder.** Mandar correo pasa por SMTP y por una cola que
-  sobreviva a que se apague el equipo con algo sin mandar; es su propio trabajo.
-- **Abrir adjuntos.** Se dice que el mensaje trae uno —quien lee un mensaje y no
-  se entera de que traía un archivo, pierde el archivo— pero no se puede abrir.
+- **Adjuntar archivos**, ni abrir los que llegan. Se dice que el mensaje trae uno
+  —quien lee un mensaje y no se entera de que traía un archivo, pierde el
+  archivo— pero no se puede abrir.
+- **Guardar copia en «Enviados».**
 - **Otras carpetas.** Sólo la casilla de entrada.
 - **Buscar.**
+
+### Escribir
+
+«Enviar» **no espera al servidor**: el mensaje queda guardado en el disco del
+servicio y sale en cuanto se pueda. Se dice en la ventana, porque cambia lo que
+la persona espera del botón — y es lo que hace que cerrar la ventana enseguida no
+pierda nada. Lo que sí vuelve en el acto es el rechazo de un borrador que no se
+puede armar, y ahí **la ventana no se cierra**: lo escrito sigue en pantalla con
+el error a la vista.
+
+**Lo que no salió se muestra al costado**, no escondido en una carpeta que hay
+que ir a mirar. Un mensaje que la persona cree mandado y quedó trabado es de las
+peores cosas que puede hacer un cliente de correo: la conversación del otro lado
+nunca llega y nadie se entera hasta que es tarde. El motivo va con el mensaje —«no
+se pudo enviar» a secas no dice si la dirección estaba mal escrita o si el
+servidor estaba caído, que tienen arreglos distintos.
+
+**El remitente no lo elige esta ventana.** El borrador viaja sin `De` y lo pone
+el servicio con la dirección de la cuenta: mandar desde otra hace que el servidor
+rechace, o peor, que el mensaje llegue y lo marquen como falsificado.
+
+### Responder
+
+La respuesta va al `Reply-To` si el mensaje lo trae, y al remitente si no. La
+diferencia importa: las listas de correo y los sistemas de tickets ponen
+`Reply-To` justamente para que la respuesta no le llegue sólo a quien apretó
+mandar.
+
+El asunto lleva un solo «Re:» —responder cinco veces en una conversación no puede
+dejar «Re: Re: Re: Re: Re:»—, el original se cita con `>` y se recorta a cien
+líneas, y el cursor arranca **arriba** de la cita, que es donde se escribe.
 
 ---
 

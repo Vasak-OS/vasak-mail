@@ -28,3 +28,29 @@ mensaje:
   recortado: There is more to this message. This version only fetches the beginning.
   adjuntos: This message has an attachment, and this version does not open them yet.
   soloTexto: The message text is shown. Formatting and images are not loaded.
+redactar:
+  nuevo: Write
+  responder: Reply
+  titulo: New message
+  tituloRespuesta: Reply
+  para: To
+  cc: Cc
+  asunto: Subject
+  cuerpo: Message
+  variasDirecciones: Separate several with commas
+  enviar: Send
+  enviando: Adding to the queue…
+  cancelar: Cancel
+  citado: "On {0}, {1} wrote:"
+  seEncola: The message is saved and goes out as soon as it can. You can close this window.
+  descartarBorrador: Discard what you wrote?
+salida:
+  titulo: Not sent
+  esperandoOne: "{0} waiting to go out"
+  esperandoOther: "{0} waiting to go out"
+  trabado: Could not be sent
+  reintentandoOne: "{0} attempt"
+  reintentandoOther: "{0} attempts"
+  descartar: Discard
+  confirmarDescartar: What you wrote will be lost. Discard it anyway?
+  sinAsunto: (no subject)

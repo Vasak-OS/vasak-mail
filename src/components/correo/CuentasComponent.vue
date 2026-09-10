@@ -1,10 +1,15 @@
 <script lang="ts" setup>
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
-import type { Cuenta } from '@/composables/use-correo';
+import SalidaComponent from '@/components/correo/SalidaComponent.vue';
+import type { Cuenta, Saliente } from '@/composables/use-correo';
 import { claveSegunCantidad, interpolar } from '@/tools/interpolar';
 
-defineProps<{ cuentas: Cuenta[]; elegida: string }>();
-const emit = defineEmits<{ elegir: [accountId: string] }>();
+defineProps<{ cuentas: Cuenta[]; elegida: string; salientes: Saliente[] }>();
+const emit = defineEmits<{
+	elegir: [accountId: string];
+	escribir: [];
+	descartar: [id: string];
+}>();
 
 const { t } = useI18n();
 
@@ -23,6 +28,13 @@ function sinLeerDe(cuenta: Cuenta): string {
     </div>
 
     <template v-else>
+      <button
+        type="button"
+        class="rounded-corner bg-primary px-2 py-1 text-sm text-tx-on-primary"
+        @click="emit('escribir')">
+        {{ t('redactar.nuevo') }}
+      </button>
+
       <h2 class="font-medium text-tx-muted text-xs uppercase">{{ t('cuentas.titulo') }}</h2>
       <ul class="flex flex-col gap-1">
         <li v-for="cuenta in cuentas" :key="cuenta.account_id">
@@ -47,6 +59,8 @@ function sinLeerDe(cuenta: Cuenta): string {
           </button>
         </li>
       </ul>
+
+      <SalidaComponent :salientes="salientes" @descartar="emit('descartar', $event)" />
     </template>
   </aside>
 </template>

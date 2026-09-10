@@ -35,6 +35,9 @@ pub fn run() {
             comandos::listar_mensajes,
             comandos::abrir_mensaje,
             comandos::marcar_leido,
+            comandos::enviar_mensaje,
+            comandos::listar_salientes,
+            comandos::descartar_saliente,
         ])
         // El sincronizador avisa cuando llega correo; esto lo traduce a un
         // evento que la ventana escucha. Ver `correo.rs`.

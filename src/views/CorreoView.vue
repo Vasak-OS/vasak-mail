@@ -1,13 +1,16 @@
 <script lang="ts" setup>
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
-import { onMounted, onUnmounted } from 'vue';
+import { onMounted, onUnmounted, ref } from 'vue';
 import CuentasComponent from '@/components/correo/CuentasComponent.vue';
 import ListaComponent from '@/components/correo/ListaComponent.vue';
 import MensajeComponent from '@/components/correo/MensajeComponent.vue';
-import { useCorreo } from '@/composables/use-correo';
+import RedactarComponent from '@/components/correo/RedactarComponent.vue';
+import { type Borrador, useCorreo } from '@/composables/use-correo';
+import { interpolar } from '@/tools/interpolar';
+import { responder as armarRespuesta } from '@/tools/responder';
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const {
 	cuentas,
 	elegida,
@@ -17,11 +20,75 @@ const {
 	cargandoLista,
 	cargandoMensaje,
 	error,
+	salientes,
+	enviando,
 	cargarCuentas,
 	elegir,
 	abrir,
 	marcarLeido,
+	enviar,
+	descartarSaliente,
 } = useCorreo();
+
+/** El borrador abierto, o `null` si no hay ninguno. */
+const redactando = ref<Borrador | null>(null);
+const esRespuesta = ref(false);
+
+const VACIO: Borrador = {
+	para: [],
+	cc: [],
+	asunto: '',
+	cuerpo: '',
+	en_respuesta_a: '',
+	referencias: [],
+};
+
+function escribir() {
+	redactando.value = { ...VACIO };
+	esRespuesta.value = false;
+}
+
+/**
+ * Abre una respuesta al mensaje que se está leyendo.
+ *
+ * El encabezado de la cita se arma acá, que es donde hay traducciones y donde
+ * se sabe en qué idioma está la sesión.
+ */
+function responderAlAbierto() {
+	if (!abierto.value || !cuerpo.value) {
+		return;
+	}
+	const fecha = abierto.value.fecha
+		? new Intl.DateTimeFormat(locale.value, { dateStyle: 'long' }).format(
+				new Date(abierto.value.fecha)
+			)
+		: '';
+	const encabezado = interpolar(t('redactar.citado'), fecha, abierto.value.de);
+
+	redactando.value = armarRespuesta(
+		{
+			asunto: abierto.value.asunto,
+			texto: cuerpo.value.texto,
+			de: abierto.value.direccion,
+			responder_a: cuerpo.value.responder_a,
+			fecha: abierto.value.fecha,
+			message_id: cuerpo.value.message_id,
+			referencias: cuerpo.value.referencias,
+		},
+		encabezado
+	) as Borrador;
+	redactando.value.cc = [];
+	esRespuesta.value = true;
+}
+
+async function enviarBorrador(borrador: Borrador) {
+	// La ventana se cierra **sólo si quedó guardado**. Un borrador que el
+	// servicio rechaza —una dirección mal escrita— tiene que seguir en pantalla
+	// con el error a la vista, o lo que se escribió se pierde.
+	if (await enviar(borrador)) {
+		redactando.value = null;
+	}
+}
 
 let dejarDeEscuchar: UnlistenFn | null = null;
 /**
@@ -60,7 +127,9 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-1 flex-col">
+  <!-- `relative` porque la ventana de redacción va encima, no en una ventana
+       aparte: escribir un correo es algo que se hace y se termina. -->
+  <div class="relative flex min-h-0 flex-1 flex-col">
     <header class="flex items-center gap-2 border-ui-border border-b px-3 py-2">
       <h1 class="font-title text-lg">{{ t('app.nombre') }}</h1>
       <span class="flex-1"></span>
@@ -83,7 +152,13 @@ onUnmounted(() => {
     </p>
 
     <div class="flex min-h-0 flex-1">
-      <CuentasComponent :cuentas="cuentas" :elegida="elegida" @elegir="elegir" />
+      <CuentasComponent
+        :cuentas="cuentas"
+        :elegida="elegida"
+        :salientes="salientes"
+        @elegir="elegir"
+        @escribir="escribir"
+        @descartar="descartarSaliente" />
       <ListaComponent
         :mensajes="mensajes"
         :abierto="abierto"
@@ -93,7 +168,16 @@ onUnmounted(() => {
         :abierto="abierto"
         :cuerpo="cuerpo"
         :cargando="cargandoMensaje"
-        @marcar-leido="marcarLeido" />
+        @marcar-leido="marcarLeido"
+        @responder="responderAlAbierto" />
     </div>
+
+    <RedactarComponent
+      v-if="redactando"
+      :inicial="redactando"
+      :es-respuesta="esRespuesta"
+      :enviando="enviando"
+      @enviar="enviarBorrador"
+      @cerrar="redactando = null" />
   </div>
 </template>

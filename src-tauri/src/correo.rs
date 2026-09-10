@@ -59,7 +59,7 @@ pub struct Resumen {
 }
 
 /// Un mensaje abierto.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Abierto {
     pub texto: String,
     /// El mensaje era más largo de lo que se trae. Se dice: un texto que termina
@@ -68,6 +68,17 @@ pub struct Abierto {
     /// Trae algo pegado. Se dice aunque **todavía no se pueda abrir**: quien lee
     /// un mensaje y no se entera de que traía un archivo, pierde el archivo.
     pub adjuntos: bool,
+    /// El identificador del mensaje, para enganchar la respuesta a la
+    /// conversación. Vacío si el mensaje no traía uno, que pasa.
+    #[serde(default)]
+    pub message_id: String,
+    #[serde(default)]
+    pub referencias: Vec<String>,
+    /// A dónde va la respuesta: el `Reply-To` si lo hay, y el remitente si no.
+    #[serde(default)]
+    pub responder_a: String,
+    #[serde(default)]
+    pub nombre: String,
 }
 
 async fn conectar() -> Result<zbus::Connection, String> {
@@ -135,6 +146,76 @@ pub async fn marcar_leido(account_id: &str, uid: u32) -> Result<(), String> {
     Ok(())
 }
 
+/// Lo que la persona escribió, camino al servicio.
+///
+/// **Sin el `De`**: lo pone el servicio con la dirección de la cuenta. Que lo
+/// eligiera la ventana permitiría mandar desde una dirección que no es la que
+/// autentica, y eso hace que el servidor rechace — o peor, que el mensaje llegue
+/// y lo marquen como falsificado.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct Borrador {
+    pub para: Vec<String>,
+    #[serde(default)]
+    pub cc: Vec<String>,
+    #[serde(default)]
+    pub asunto: String,
+    #[serde(default)]
+    pub cuerpo: String,
+    /// El `Message-ID` del mensaje al que se responde. Es lo que engancha la
+    /// respuesta a la conversación en el cliente de quien la recibe.
+    #[serde(default)]
+    pub en_respuesta_a: String,
+    #[serde(default)]
+    pub referencias: Vec<String>,
+}
+
+/// Un mensaje esperando salir.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct Saliente {
+    pub id: String,
+    pub account_id: String,
+    pub borrador: Borrador,
+    #[serde(default)]
+    pub intentos: u32,
+    /// `pendiente` o `trabado`. Trabado quiere decir que no se vuelve a
+    /// intentar solo y que hace falta que la persona haga algo.
+    #[serde(default)]
+    pub estado: String,
+    #[serde(default)]
+    pub ultimo_error: String,
+}
+
+/// Pone un mensaje en la cola de salida.
+///
+/// **Encola, no manda**: vuelve en cuanto el mensaje está a salvo en el disco
+/// del servicio. Que apretar «Enviar» no espere al servidor es lo que hace que
+/// cerrar la ventana, o quedarse sin luz, no pierda lo que se escribió.
+///
+/// Lo que sí vuelve en el acto es el rechazo de un borrador que no se puede
+/// armar —una dirección mal escrita—, que es lo que hay que decir mientras la
+/// persona lo tiene en pantalla.
+pub async fn enviar(account_id: &str, borrador: &Borrador) -> Result<String, String> {
+    let json = serde_json::to_string(borrador)
+        .map_err(|e| format!("no se pudo preparar el mensaje: {e}"))?;
+    llamar("SendMessage", &(account_id, json.as_str())).await
+}
+
+/// Lo que está esperando salir.
+pub async fn salientes() -> Result<Vec<Saliente>, String> {
+    let json = llamar("ListOutbox", &()).await?;
+    serde_json::from_str(&json).map_err(|e| format!("no se pudo leer la cola de salida: {e}"))
+}
+
+/// Saca un mensaje de la cola sin mandarlo. **Se pierde lo escrito.**
+pub async fn descartar(id: &str) -> Result<(), String> {
+    conectar()
+        .await?
+        .call_method(Some(SERVICIO), RUTA, Some(INTERFAZ), "DiscardOutgoing", &(id,))
+        .await
+        .map_err(|e| format!("no se pudo descartar: {e}"))?;
+    Ok(())
+}
+
 /// El evento que ve la ventana cuando llega correo.
 pub const EVENTO: &str = "correo-cambio";
 
@@ -146,11 +227,11 @@ pub const EVENTO: &str = "correo-cambio";
 /// la borda con un sondeo cada tantos segundos sería gastar batería para
 /// enterarse más tarde.
 ///
-/// Se traducen las dos señales, `MessagesChanged` y `MailboxChanged`: la primera
-/// es que cambió la lista y la segunda que cambió el contador. Las dos quieren
-/// decir lo mismo para esta ventana —volvé a leer— y ninguna trae detalle, a
-/// propósito: quien la recibe relee y ve el estado completo, en vez de
-/// reconciliar avisos que se pueden perder.
+/// Se traducen las tres señales: `MessagesChanged` es que cambió la lista,
+/// `MailboxChanged` que cambió el contador y `OutboxChanged` que algo salió o se
+/// trabó. Las tres quieren decir lo mismo para esta ventana —volvé a leer— y
+/// ninguna trae detalle, a propósito: quien la recibe relee y ve el estado
+/// completo, en vez de reconciliar avisos que se pueden perder.
 pub fn escuchar(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         // **En bucle, no una sola vez.** El bus de sesión se puede cortar —se
@@ -192,7 +273,7 @@ async fn seguir(app: &tauri::AppHandle) -> Result<(), String> {
     // bus para que no despierte a este proceso por cada mensaje que pasa por la
     // sesión, que son muchos.
     let mut flujos = Vec::new();
-    for señal in ["MessagesChanged", "MailboxChanged"] {
+    for señal in ["MessagesChanged", "MailboxChanged", "OutboxChanged"] {
         let regla = zbus::MatchRule::builder()
             .msg_type(zbus::message::Type::Signal)
             .interface(INTERFAZ)
@@ -295,6 +376,41 @@ mod tests {
         assert_eq!(abierto.texto, "Hola");
         assert!(abierto.recortado);
         assert!(abierto.adjuntos);
+        // Y lo de responder puede no venir: un mensaje sin `Message-ID` existe.
+        assert_eq!(abierto.message_id, "");
+    }
+
+    /// Sin esto la respuesta llega como un mensaje suelto y la conversación se
+    /// parte en el cliente de quien la recibe.
+    #[test]
+    fn un_mensaje_abierto_trae_con_que_responderlo() {
+        let json = r#"{
+            "texto": "Hola", "recortado": false, "adjuntos": false,
+            "message_id": "<a@x>", "referencias": ["<a@x>"],
+            "responder_a": "ana@ejemplo.com", "nombre": "Ana"
+        }"#;
+        let abierto: Abierto = serde_json::from_str(json).unwrap();
+
+        assert_eq!(abierto.message_id, "<a@x>");
+        assert_eq!(abierto.responder_a, "ana@ejemplo.com");
+        assert_eq!(abierto.referencias, vec!["<a@x>"]);
+    }
+
+    /// El borrador viaja sin el `De`: lo pone el servicio con la dirección de
+    /// la cuenta. Que lo eligiera la ventana permitiría mandar desde una
+    /// dirección que no es la que autentica.
+    #[test]
+    fn el_borrador_no_lleva_el_remitente() {
+        let borrador = Borrador {
+            para: vec!["juan@otro.com".into()],
+            asunto: "Hola".into(),
+            cuerpo: "Buenas.".into(),
+            ..Default::default()
+        };
+
+        let json = serde_json::to_value(&borrador).unwrap();
+        assert!(json.get("de").is_none(), "{json}");
+        assert!(json.get("nombre").is_none(), "{json}");
     }
 
     /// Una cuenta sin los campos opcionales no puede tirar la lista entera: el
