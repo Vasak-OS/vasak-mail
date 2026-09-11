@@ -83,9 +83,23 @@ const cuando = computed(() => {
         <!-- Los dos avisos existen porque callarlos hace perder cosas: un texto
              que termina a la mitad parece un mensaje roto, y un adjunto que no
              se nombra es un archivo que la persona no sabe que recibió. -->
-        <p v-if="cuerpo.adjuntos" class="mx-4 mt-3 rounded-corner bg-ui-surface/60 p-2 text-xs">
-          📎 {{ t('mensaje.adjuntos') }}
-        </p>
+        <!-- Con nombre y tipo, que es lo que faltaba. Todavía no se pueden
+             abrir, y el aviso lo dice: enterarse de que vino un archivo y no
+             saber cuál sigue siendo perder el archivo, sólo que más despacio.
+
+             El nombre viene saneado del sincronizador. Se muestra en un `<li>`
+             y no en un enlace ni en nada que lo interprete: lo eligió quien
+             mandó el mensaje. -->
+        <div
+          v-if="cuerpo.adjuntos.length > 0"
+          class="mx-4 mt-3 rounded-corner bg-ui-surface/60 p-2 text-xs">
+          <p>📎 {{ t('mensaje.adjuntos') }}</p>
+          <ul class="mt-1 flex flex-col gap-0.5">
+            <li v-for="a in cuerpo.adjuntos" :key="a.parte" class="truncate" :title="a.tipo">
+              {{ a.nombre }}
+            </li>
+          </ul>
+        </div>
 
         <!-- `white-space: pre-wrap` y no HTML.
              El texto lo escribió cualquiera que sepa la dirección de la persona:

@@ -54,7 +54,7 @@ mensaje:
   recortado: El mensaje sigue. Esta versión trae sólo el principio.
   # Y esto también: quien lee un mensaje y no se entera de que traía un archivo,
   # pierde el archivo.
-  adjuntos: Este mensaje trae un archivo adjunto, y esta versión todavía no los abre.
+  adjuntos: "Este mensaje trae archivos adjuntos. Esta versión los nombra, y todavía no los abre:"
   soloTexto: Se muestra el texto del mensaje. El formato y las imágenes no se cargan.
 redactar:
   nuevo: Escribir

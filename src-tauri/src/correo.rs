@@ -39,6 +39,19 @@ pub struct Cuenta {
     pub error: String,
 }
 
+/// Un archivo pegado a un mensaje.
+///
+/// El nombre viene **ya saneado** del sincronizador: sin separadores de ruta,
+/// sin `..` y sin caracteres de control. Lo eligió quien mandó el mensaje, así
+/// que se propone y no se obedece — el destino lo elige la persona.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct Adjunto {
+    /// El número de parte en el árbol MIME, para pedirla al servidor.
+    pub parte: String,
+    pub nombre: String,
+    pub tipo: String,
+}
+
 /// Una carpeta del servidor.
 ///
 /// `uso` es para qué sirve —`entrada`, `enviados`, `papelera`…— y lo calcula el
@@ -83,7 +96,9 @@ pub struct Abierto {
     pub recortado: bool,
     /// Trae algo pegado. Se dice aunque **todavía no se pueda abrir**: quien lee
     /// un mensaje y no se entera de que traía un archivo, pierde el archivo.
-    pub adjuntos: bool,
+    /// Los archivos pegados: cuáles hay, cómo se llaman y qué número de parte
+    /// tienen. Era un booleano; ahora es la lista.
+    pub adjuntos: Vec<Adjunto>,
     /// El identificador del mensaje, para enganchar la respuesta a la
     /// conversación. Vacío si el mensaje no traía uno, que pasa.
     #[serde(default)]
@@ -395,12 +410,13 @@ mod tests {
 
     #[test]
     fn un_mensaje_abierto_dice_si_se_corto_y_si_trae_algo() {
-        let json = r#"{"texto":"Hola","recortado":true,"adjuntos":true}"#;
+        let json = r#"{"texto":"Hola","recortado":true,"adjuntos":[{"parte":"2","nombre":"x.pdf","tipo":"application/pdf"}]}"#;
         let abierto: Abierto = serde_json::from_str(json).unwrap();
 
         assert_eq!(abierto.texto, "Hola");
         assert!(abierto.recortado);
-        assert!(abierto.adjuntos);
+        assert_eq!(abierto.adjuntos.len(), 1);
+        assert_eq!(abierto.adjuntos[0].nombre, "x.pdf");
         // Y lo de responder puede no venir: un mensaje sin `Message-ID` existe.
         assert_eq!(abierto.message_id, "");
     }
