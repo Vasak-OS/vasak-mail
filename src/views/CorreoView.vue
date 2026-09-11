@@ -1,12 +1,15 @@
 <script lang="ts" setup>
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
-import { onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import CuentasComponent from '@/components/correo/CuentasComponent.vue';
 import ListaComponent from '@/components/correo/ListaComponent.vue';
 import MensajeComponent from '@/components/correo/MensajeComponent.vue';
 import RedactarComponent from '@/components/correo/RedactarComponent.vue';
 import { type Borrador, useCorreo } from '@/composables/use-correo';
+import { useReactiveIcons } from '@/composables/useReactiveIcon';
+import WindowAppLayout from '@/layouts/WindowAppLayout.vue';
+import { nombreDeCasilla } from '@/tools/casillas';
 import { interpolar } from '@/tools/interpolar';
 import { responder as armarRespuesta } from '@/tools/responder';
 
@@ -32,6 +35,28 @@ const {
 	enviar,
 	descartarSaliente,
 } = useCorreo();
+
+const { actualizar, icono } = useReactiveIcons({
+	actualizar: 'view-refresh',
+	// El icono de la aplicación, no un símbolo: es la identidad de la ventana y
+	// va a color, como en el resto del escritorio.
+	icono: { name: 'internet-mail', type: 'icon' },
+});
+
+/**
+ * Dónde está parada la ventana: la carpeta abierta y de qué cuenta.
+ *
+ * Es lo que va al medio de la barra, por el mismo motivo por el que el
+ * calendario pone ahí el mes: es la única cosa que dice qué se está mirando, y
+ * con varias cuentas conectadas equivocarse de casilla es fácil y no se nota.
+ */
+const dondeEstoy = computed(() => {
+	const abierta = casillas.value.find((c) => c.ruta === casilla.value);
+	return {
+		carpeta: abierta ? nombreDeCasilla(abierta, t) : t('casillas.entrada'),
+		cuenta: cuentas.value.find((c) => c.account_id === elegida.value)?.display_name ?? '',
+	};
+});
 
 /** El borrador abierto, o `null` si no hay ninguno. */
 const redactando = ref<Borrador | null>(null);
@@ -158,60 +183,92 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <!-- `relative` porque la ventana de redacción va encima, no en una ventana
-       aparte: escribir un correo es algo que se hace y se termina. -->
-  <div class="relative flex min-h-0 flex-1 flex-col">
-    <header class="flex items-center gap-2 border-ui-border border-b px-3 py-2">
-      <h1 class="font-title text-lg">{{ t('app.nombre') }}</h1>
+  <WindowAppLayout>
+    <template #barra>
+      <!-- El icono de la aplicación, a la izquierda de todo, como en el resto
+           del escritorio. Reemplaza al título escrito: el nombre de la ventana
+           ya lo dice el icono. -->
+      <img :src="icono" class="h-6 w-6 shrink-0" :alt="t('app.nombre')" />
+
+      <!-- Lo que sigue se va contra los controles de la ventana, que es donde
+           está el botón de actualizar en el resto de las aplicaciones. -->
       <span class="flex-1"></span>
+
+      <!-- El estado de carga se dice, no se insinúa con un icono girando: sin
+           esto, un servidor lento y una casilla vacía se ven igual. -->
       <span v-if="cargandoLista" class="text-tx-muted text-xs" role="status">
         {{ t('lista.cargando') }}
       </span>
       <button
-        v-else
         type="button"
-        class="rounded-corner px-2 py-0.5 text-sm text-tx-muted hover:bg-ui-surface"
+        class="rounded-corner border border-ui-border bg-ui-bg/80 p-1 hover:bg-ui-surface disabled:opacity-50"
+        :aria-label="t('lista.actualizar')"
+        :title="t('lista.actualizar')"
+        :disabled="cargandoLista"
         @click="cargarCuentas()">
-        {{ t('lista.actualizar') }}
+        <img :src="actualizar" class="h-6 w-6" alt="" />
       </button>
-    </header>
+    </template>
 
-    <!-- Lo que falló va a la vista y no a la consola: una casilla vacía y una
-         que no se pudo leer se ven idénticas, y la diferencia importa. -->
-    <p v-if="error" class="border-ui-border border-b px-3 py-2 text-status-warning text-xs" role="status">
-      {{ error }}
-    </p>
+    <!-- Dónde se está parado, centrado en la barra entera y no en lo que sobra
+         entre el icono y los controles de la ventana.
 
-    <div class="flex min-h-0 flex-1">
-      <CuentasComponent
-        :cuentas="cuentas"
-        :elegida="elegida"
-        :casillas="casillas"
-        :casilla="casilla"
-        :salientes="salientes"
-        @elegir="elegir"
-        @elegir-casilla="elegirCasilla"
-        @escribir="escribir"
-        @descartar="descartarSaliente" />
-      <ListaComponent
-        :mensajes="mensajes"
-        :abierto="abierto"
-        :cargando="cargandoLista"
-        @abrir="abrir" />
-      <MensajeComponent
-        :abierto="abierto"
-        :cuerpo="cuerpo"
-        :cargando="cargandoMensaje"
-        @marcar-leido="marcarLeido"
-        @responder="responderAlAbierto" />
+         `aria-live` porque al cambiar de carpeta es lo único que lo anuncia:
+         quien no ve la lista no tiene otra pista de que cambió. -->
+    <template #barraCentro>
+      <span class="flex items-baseline gap-2" aria-live="polite">
+        <span class="font-title text-base">{{ dondeEstoy.carpeta }}</span>
+        <span v-if="dondeEstoy.cuenta" class="max-w-56 truncate text-tx-muted text-xs">
+          {{ dondeEstoy.cuenta }}
+        </span>
+      </span>
+    </template>
+
+    <!-- `relative` porque la ventana de redacción va encima, no en una ventana
+         aparte: escribir un correo es algo que se hace y se termina. -->
+    <div class="relative flex min-h-0 flex-1 flex-col">
+      <!-- Lo que falló va a la vista y no a la consola: una casilla vacía y una
+           que no se pudo leer se ven idénticas, y la diferencia importa. -->
+      <p
+        v-if="error"
+        class="border-ui-border border-b px-3 py-2 text-status-warning text-xs"
+        role="status">
+        {{ error }}
+      </p>
+
+      <!-- Las secciones separadas por aire y no por líneas: cada una es una
+           superficie redondeada, como los paneles del escritorio. -->
+      <div class="flex min-h-0 flex-1 gap-1 p-1">
+        <CuentasComponent
+          :cuentas="cuentas"
+          :elegida="elegida"
+          :casillas="casillas"
+          :casilla="casilla"
+          :salientes="salientes"
+          @elegir="elegir"
+          @elegir-casilla="elegirCasilla"
+          @escribir="escribir"
+          @descartar="descartarSaliente" />
+        <ListaComponent
+          :mensajes="mensajes"
+          :abierto="abierto"
+          :cargando="cargandoLista"
+          @abrir="abrir" />
+        <MensajeComponent
+          :abierto="abierto"
+          :cuerpo="cuerpo"
+          :cargando="cargandoMensaje"
+          @marcar-leido="marcarLeido"
+          @responder="responderAlAbierto" />
+      </div>
+
+      <RedactarComponent
+        v-if="redactando"
+        :inicial="redactando"
+        :es-respuesta="esRespuesta"
+        :enviando="enviando"
+        @enviar="enviarBorrador"
+        @cerrar="redactando = null" />
     </div>
-
-    <RedactarComponent
-      v-if="redactando"
-      :inicial="redactando"
-      :es-respuesta="esRespuesta"
-      :enviando="enviando"
-      @enviar="enviarBorrador"
-      @cerrar="redactando = null" />
-  </div>
+  </WindowAppLayout>
 </template>
