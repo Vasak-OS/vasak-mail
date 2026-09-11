@@ -257,7 +257,13 @@ pub async fn salientes() -> Result<Vec<Saliente>, String> {
 pub async fn descartar(id: &str) -> Result<(), String> {
     conectar()
         .await?
-        .call_method(Some(SERVICIO), RUTA, Some(INTERFAZ), "DiscardOutgoing", &(id,))
+        .call_method(
+            Some(SERVICIO),
+            RUTA,
+            Some(INTERFAZ),
+            "DiscardOutgoing",
+            &(id,),
+        )
         .await
         .map_err(|e| format!("no se pudo descartar: {e}"))?;
     Ok(())
