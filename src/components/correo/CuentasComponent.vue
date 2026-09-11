@@ -1,12 +1,20 @@
 <script lang="ts" setup>
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
+import { computed } from 'vue';
 import SalidaComponent from '@/components/correo/SalidaComponent.vue';
-import type { Cuenta, Saliente } from '@/composables/use-correo';
+import type { Casilla, Cuenta, Saliente } from '@/composables/use-correo';
 import { claveSegunCantidad, interpolar } from '@/tools/interpolar';
 
-defineProps<{ cuentas: Cuenta[]; elegida: string; salientes: Saliente[] }>();
+const props = defineProps<{
+	cuentas: Cuenta[];
+	elegida: string;
+	casillas: Casilla[];
+	casilla: string;
+	salientes: Saliente[];
+}>();
 const emit = defineEmits<{
 	elegir: [accountId: string];
+	elegirCasilla: [ruta: string];
 	escribir: [];
 	descartar: [id: string];
 }>();
@@ -15,6 +23,47 @@ const { t } = useI18n();
 
 function sinLeerDe(cuenta: Cuenta): string {
 	return interpolar(t(claveSegunCantidad('cuentas.sinLeer', cuenta.sin_leer)), cuenta.sin_leer);
+}
+
+/**
+ * Las carpetas que se pueden abrir, con las conocidas primero.
+ *
+ * El orden no es el del servidor a propósito: entrada, enviados, borradores,
+ * archivo, spam y papelera arriba, y después lo que la persona haya creado, por
+ * nombre. El del servidor suele ser alfabético y deja «Enviados» entre dos
+ * carpetas cualquiera.
+ *
+ * Las `\Noselect` se sacan: existen sólo como rama de la jerarquía, y
+ * ofrecerlas para abrir es ofrecer un error.
+ */
+const ORDEN = ['entrada', 'enviados', 'borradores', 'archivo', 'spam', 'papelera', 'todo'];
+
+const ordenadas = computed(() =>
+	props.casillas
+		.filter((c) => c.seleccionable)
+		.slice()
+		.sort((a, b) => {
+			const ia = ORDEN.indexOf(a.uso);
+			const ib = ORDEN.indexOf(b.uso);
+			if (ia !== ib) {
+				return (ia < 0 ? ORDEN.length : ia) - (ib < 0 ? ORDEN.length : ib);
+			}
+			return a.nombre.localeCompare(b.nombre);
+		})
+);
+
+/**
+ * El nombre traducido de las carpetas conocidas.
+ *
+ * Un servidor en inglés dice «Sent» y uno en español «Elementos enviados»; que
+ * la misma carpeta se llame distinto según el proveedor es ruido. Las que no se
+ * reconocen se muestran con el nombre que les puso quien las creó, que es el
+ * correcto.
+ */
+function nombreDe(c: Casilla): string {
+	const clave = `casillas.${c.uso}`;
+	const traducido = t(clave);
+	return traducido === clave ? c.nombre : traducido;
 }
 </script>
 
@@ -59,6 +108,28 @@ function sinLeerDe(cuenta: Cuenta): string {
           </button>
         </li>
       </ul>
+
+      <!-- Las carpetas de la cuenta elegida. Si el servidor no contestó el
+           LIST la lista queda vacía y no se dibuja nada: se ve la de entrada,
+           que es lo que se veía antes de que existieran. -->
+      <template v-if="ordenadas.length > 0">
+        <h2 class="mt-2 font-medium text-tx-muted text-xs uppercase">
+          {{ t('casillas.titulo') }}
+        </h2>
+        <ul class="flex flex-col gap-1">
+          <li v-for="c in ordenadas" :key="c.ruta">
+            <button
+              type="button"
+              class="w-full truncate rounded-corner px-2 py-1 text-left text-sm hover:bg-ui-surface"
+              :class="{ 'bg-ui-surface': c.ruta === casilla }"
+              :aria-current="c.ruta === casilla ? 'true' : undefined"
+              :title="c.nombre"
+              @click="emit('elegirCasilla', c.ruta)">
+              {{ nombreDe(c) }}
+            </button>
+          </li>
+        </ul>
+      </template>
     </template>
 
     <!-- **Fuera del bloque de las cuentas.** La cola es del servicio y no de

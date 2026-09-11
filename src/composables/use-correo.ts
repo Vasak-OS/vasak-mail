@@ -10,6 +10,19 @@ export interface Cuenta {
 	error: string;
 }
 
+/** Una carpeta del servidor. */
+export interface Casilla {
+	/** El nombre que se le manda al servidor. */
+	ruta: string;
+	/** El nombre que se muestra, ya decodificado. */
+	nombre: string;
+	/** `entrada`, `enviados`, `papelera`, `spam`, `borradores`, `archivo`,
+	 *  `todo` o `ninguno`. Lo calcula el sincronizador, que es quien habla IMAP. */
+	uso: string;
+	/** Si se puede abrir. Las que no, existen sólo como rama de la jerarquía. */
+	seleccionable: boolean;
+}
+
 /** Un mensaje en la lista, sin su cuerpo. */
 export interface Resumen {
 	uid: number;
@@ -69,6 +82,15 @@ export interface Saliente {
 export function useCorreo() {
 	const cuentas = ref<Cuenta[]>([]);
 	const elegida = ref('');
+	const casillas = ref<Casilla[]>([]);
+	/**
+	 * La carpeta abierta, como ruta.
+	 *
+	 * Arranca en `INBOX` y no vacía: es la que el sincronizador mantiene al día
+	 * con IDLE, o sea la única que aparece al instante. Las demás se traen del
+	 * servidor cuando alguien las abre.
+	 */
+	const casilla = ref('INBOX');
 	const mensajes = ref<Resumen[]>([]);
 	const abierto = ref<Resumen | null>(null);
 	const cuerpo = ref<Abierto | null>(null);
@@ -151,6 +173,7 @@ export function useCorreo() {
 		try {
 			const lista = await invoke<Resumen[]>('listar_mensajes', {
 				accountId: elegida.value,
+				casilla: casilla.value,
 			});
 			if (mio !== listaVigente) {
 				return;
@@ -174,8 +197,46 @@ export function useCorreo() {
 		}
 	}
 
+	/**
+	 * Las carpetas de la cuenta elegida.
+	 *
+	 * Si falla, la lista queda vacía y el resto sigue andando: sin carpetas se
+	 * ve la de entrada, que es lo que se veía antes de que existieran. Un
+	 * servidor que no contesta el `LIST` no puede dejar a nadie sin su correo.
+	 */
+	async function cargarCasillas() {
+		if (!elegida.value) {
+			casillas.value = [];
+			return;
+		}
+		try {
+			casillas.value = await invoke<Casilla[]>('listar_casillas', {
+				accountId: elegida.value,
+			});
+		} catch (e) {
+			casillas.value = [];
+			console.error('no se pudieron leer las carpetas', e);
+		}
+	}
+
 	async function elegir(accountId: string) {
 		elegida.value = accountId;
+		// Volver a la de entrada al cambiar de cuenta. La carpeta que estaba
+		// abierta es de la cuenta anterior: «Enviados» de una no es «Enviados»
+		// de la otra, y puede no existir.
+		casilla.value = 'INBOX';
+		cerrar();
+		casillas.value = [];
+		await cargarMensajes();
+		await cargarCasillas();
+	}
+
+	/** Abre una carpeta de la cuenta que ya está elegida. */
+	async function elegirCasilla(ruta: string) {
+		if (casilla.value === ruta) {
+			return;
+		}
+		casilla.value = ruta;
 		cerrar();
 		await cargarMensajes();
 	}
@@ -190,6 +251,7 @@ export function useCorreo() {
 		try {
 			const traido = await invoke<Abierto>('abrir_mensaje', {
 				accountId: elegida.value,
+				casilla: casilla.value,
 				uid: resumen.uid,
 			});
 			if (mio !== mensajeVigente) {
@@ -235,14 +297,15 @@ export function useCorreo() {
 		// servidor lo aguanta —marcar dos veces lo leído no hace nada— pero acá
 		// se restaba uno al contador cada vez, y la cuenta quedaba diciendo
 		// menos correo sin leer del que tiene.
-		const enCurso = `${cuentaId}:${uid}`;
+		const casillaId = casilla.value;
+		const enCurso = `${cuentaId}:${casillaId}:${uid}`;
 		if (marcando.has(enCurso)) {
 			return;
 		}
 		marcando.add(enCurso);
 
 		try {
-			await invoke('marcar_leido', { accountId: cuentaId, uid });
+			await invoke('marcar_leido', { accountId: cuentaId, casilla: casillaId, uid });
 
 			// El contador de **esa** cuenta, esté a la vista o no: el mensaje se
 			// leyó igual.
@@ -253,7 +316,7 @@ export function useCorreo() {
 
 			// Lo que se ve, en cambio, sólo si sigue siendo lo que se ve. La
 			// lista de mensajes es la de la casilla abierta ahora.
-			if (elegida.value !== cuentaId) {
+			if (elegida.value !== cuentaId || casilla.value !== casillaId) {
 				return;
 			}
 			const mensaje = mensajes.value.find((m) => m.uid === uid);
@@ -324,6 +387,8 @@ export function useCorreo() {
 		descartarSaliente,
 		cargarSalida,
 		elegida,
+		casillas,
+		casilla,
 		mensajes,
 		abierto,
 		cuerpo,
@@ -333,6 +398,7 @@ export function useCorreo() {
 		cargarCuentas,
 		cargarMensajes,
 		elegir,
+		elegirCasilla,
 		abrir,
 		cerrar,
 		marcarLeido,

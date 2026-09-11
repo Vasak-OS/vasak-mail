@@ -32,6 +32,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             comandos::listar_cuentas,
+            comandos::listar_casillas,
             comandos::listar_mensajes,
             comandos::abrir_mensaje,
             comandos::marcar_leido,

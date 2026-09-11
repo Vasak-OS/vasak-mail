@@ -39,6 +39,22 @@ pub struct Cuenta {
     pub error: String,
 }
 
+/// Una carpeta del servidor.
+///
+/// `uso` es para qué sirve —`entrada`, `enviados`, `papelera`…— y lo calcula el
+/// sincronizador, que es quien habla IMAP: sale de `SPECIAL-USE` cuando el
+/// servidor lo anuncia y de comparar nombres conocidos cuando no.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct Casilla {
+    /// El nombre que se le manda al servidor.
+    pub ruta: String,
+    /// El nombre que se muestra, ya decodificado.
+    pub nombre: String,
+    pub uso: String,
+    /// Si se puede abrir. Las que no, existen sólo como rama de la jerarquía.
+    pub seleccionable: bool,
+}
+
 /// Un mensaje en la lista, sin su cuerpo.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Resumen {
@@ -113,15 +129,24 @@ pub async fn cuentas() -> Result<Vec<Cuenta>, String> {
     serde_json::from_str(&json).map_err(|e| format!("no se pudo leer la lista de cuentas: {e}"))
 }
 
-/// Los últimos mensajes de una cuenta.
-pub async fn mensajes(account_id: &str) -> Result<Vec<Resumen>, String> {
-    let json = llamar("ListMessages", &(account_id,)).await?;
+/// Las casillas de una cuenta.
+pub async fn casillas(account_id: &str) -> Result<Vec<Casilla>, String> {
+    let json = llamar("ListMailboxes", &(account_id,)).await?;
+    serde_json::from_str(&json).map_err(|e| format!("no se pudieron leer las carpetas: {e}"))
+}
+
+/// Los últimos mensajes de una casilla.
+///
+/// La casilla va siempre, incluso para la de entrada: los **UID son por
+/// casilla**, así que pedir mensajes sin decir de dónde es pedir cualquiera.
+pub async fn mensajes(account_id: &str, casilla: &str) -> Result<Vec<Resumen>, String> {
+    let json = llamar("ListMessages", &(account_id, casilla)).await?;
     serde_json::from_str(&json).map_err(|e| format!("no se pudo leer el correo: {e}"))
 }
 
 /// El texto de un mensaje. Se trae del servidor en el momento.
-pub async fn abrir(account_id: &str, uid: u32) -> Result<Abierto, String> {
-    let json = llamar("GetMessage", &(account_id, uid)).await?;
+pub async fn abrir(account_id: &str, casilla: &str, uid: u32) -> Result<Abierto, String> {
+    let json = llamar("GetMessage", &(account_id, casilla, uid)).await?;
     serde_json::from_str(&json).map_err(|e| format!("no se pudo leer el mensaje: {e}"))
 }
 
@@ -131,7 +156,7 @@ pub async fn abrir(account_id: &str, uid: u32) -> Result<Abierto, String> {
 /// panel: el sincronizador trae todo con `BODY.PEEK`, que mira sin marcar. Que
 /// pasar por encima de un mensaje con las flechas te vacíe el contador de sin
 /// leer es de los errores más molestos que puede tener un cliente de correo.
-pub async fn marcar_leido(account_id: &str, uid: u32) -> Result<(), String> {
+pub async fn marcar_leido(account_id: &str, casilla: &str, uid: u32) -> Result<(), String> {
     conectar()
         .await?
         .call_method(
@@ -139,7 +164,7 @@ pub async fn marcar_leido(account_id: &str, uid: u32) -> Result<(), String> {
             RUTA,
             Some(INTERFAZ),
             "MarkRead",
-            &(account_id, uid),
+            &(account_id, casilla, uid),
         )
         .await
         .map_err(|e| format!("no se pudo marcar como leído: {e}"))?;
