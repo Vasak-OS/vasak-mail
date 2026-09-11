@@ -6,8 +6,11 @@ import type { Casilla, Cuenta, Saliente } from '@/composables/use-correo';
 import { TODAS } from '@/tools/bandeja';
 import { nombreDeCasilla } from '@/tools/casillas';
 import { claveSegunCantidad, interpolar } from '@/tools/interpolar';
+import type { Panel } from '@/tools/paneles';
 
 const props = defineProps<{
+	/** Cuál de los tres paneles se ve. Sólo importa en una ventana angosta. */
+	panel: Panel;
 	cuentas: Cuenta[];
 	elegida: string;
 	casillas: Casilla[];

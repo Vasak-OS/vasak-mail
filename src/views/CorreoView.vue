@@ -14,6 +14,7 @@ import { Atajos } from '@/tools/atajos';
 import { claveDe } from '@/tools/bandeja';
 import { nombreDeCasilla } from '@/tools/casillas';
 import { interpolar } from '@/tools/interpolar';
+import { panelVisible } from '@/tools/paneles';
 import { responder as armarRespuesta } from '@/tools/responder';
 
 const { t, locale } = useI18n();
@@ -167,6 +168,18 @@ async function enviarBorrador(borrador: Borrador) {
 /** Si está a la vista la lista de atajos. */
 const mostrandoAtajos = ref(false);
 
+/** Si se pidió cambiar de carpeta. Sólo cambia lo que se ve en angosto. */
+const pidieronCarpetas = ref(false);
+
+/**
+ * Qué panel se ve cuando no entran los tres.
+ *
+ * Se **deduce** de lo que la aplicación ya sabe en vez de guardarse aparte: un
+ * estado paralelo se desincroniza —abrir un mensaje con la tecla `j` y que el
+ * panel no cambie— y la forma de que eso no pase es que no exista.
+ */
+const panel = computed(() => panelVisible(abierto.value !== null, pidieronCarpetas.value));
+
 const atajos = new Atajos();
 
 /**
@@ -192,6 +205,29 @@ function moverse(cuanto: number) {
 	if (destino) {
 		abrir(destino);
 	}
+}
+
+/**
+ * Elegir una cuenta o una carpeta devuelve a la lista.
+ *
+ * En una ventana angosta, quedarse en el panel de carpetas después de elegir
+ * una obliga a un toque más para ver lo que se acaba de pedir. En una ancha no
+ * cambia nada: el panel de carpetas está siempre a la vista.
+ */
+async function elegirCuenta(accountId: string) {
+	pidieronCarpetas.value = false;
+	await elegir(accountId);
+}
+
+async function elegirCarpeta(ruta: string) {
+	pidieronCarpetas.value = false;
+	await elegirCasilla(ruta);
+}
+
+/** Vuelve a la lista, venga de donde venga. */
+function volverALaLista() {
+	pidieronCarpetas.value = false;
+	cerrar();
 }
 
 function alApretar(evento: KeyboardEvent) {
@@ -225,7 +261,7 @@ function alApretar(evento: KeyboardEvent) {
 			if (!abierto.value) moverse(1);
 			break;
 		case 'volver':
-			cerrar();
+			volverALaLista();
 			break;
 		case 'responder':
 			responderAlAbierto();
@@ -346,29 +382,35 @@ onUnmounted(() => {
            superficie redondeada, como los paneles del escritorio. -->
       <div class="flex min-h-0 flex-1 gap-1 p-1">
         <CuentasComponent
+          :panel="panel"
           :cuentas="cuentas"
           :elegida="elegida"
           :casillas="casillas"
           :casilla="casilla"
           :salientes="salientes"
           :sin-leer-en-total="sinLeerEnTotal"
-          @elegir="elegir"
-          @elegir-casilla="elegirCasilla"
+          @elegir="elegirCuenta"
+          @elegir-casilla="elegirCarpeta"
           @escribir="escribir"
           @descartar="descartarSaliente" />
         <ListaComponent
+          :panel="panel"
+          :carpeta="dondeEstoy.carpeta"
           :mensajes="mensajes"
           :abierto="abierto"
           :cargando="cargandoLista"
           :combinada="combinada"
           :cuentas="cuentas"
-          @abrir="abrir" />
+          @abrir="abrir"
+          @carpetas="pidieronCarpetas = true" />
         <MensajeComponent
+          :panel="panel"
           :abierto="abierto"
           :cuerpo="cuerpo"
           :cargando="cargandoMensaje"
           @marcar-leido="marcarLeido"
-          @responder="responderAlAbierto" />
+          @responder="responderAlAbierto"
+          @volver="volverALaLista" />
       </div>
 
       <RedactarComponent

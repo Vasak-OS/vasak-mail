@@ -60,6 +60,7 @@ lista:
   conAdjuntos: Trae un archivo
   noLeido: Sin leer
 mensaje:
+  volver: Volver
   elegiUno: Elegí un mensaje para leerlo
   de: De
   cuando: Cuándo

@@ -1,11 +1,14 @@
 <script lang="ts" setup>
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
-import { computed } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import type { Cuenta, Resumen } from '@/composables/use-correo';
 import { claveDe, esElMismo } from '@/tools/bandeja';
 import { cuando } from '@/tools/fecha';
+import type { Panel } from '@/tools/paneles';
 
 const props = defineProps<{
+	/** Cuál de los tres paneles se ve. Sólo importa en una ventana angosta. */
+	panel: Panel;
 	mensajes: Resumen[];
 	abierto: Resumen | null;
 	cargando: boolean;
@@ -13,10 +16,31 @@ const props = defineProps<{
 	combinada: boolean;
 	/** Para poder decir de qué cuenta es cada fila cuando están juntas. */
 	cuentas: Cuenta[];
+	/** El nombre de la carpeta abierta, para el botón de la ventana angosta. */
+	carpeta: string;
 }>();
-const emit = defineEmits<{ abrir: [mensaje: Resumen] }>();
+const emit = defineEmits<{ abrir: [mensaje: Resumen]; carpetas: [] }>();
 
 const { t, locale } = useI18n();
+
+/**
+ * El botón de la carpeta, para recuperar el foco al volver a la lista.
+ *
+ * Mismo truco que el de volver en el mensaje: es `md:hidden`, así que enfocarlo
+ * en una ventana ancha no hace nada y no hay que preguntar por el ancho. Sin
+ * esto, al volver de un mensaje el foco se queda en un botón que ya no está en
+ * pantalla y quien navega con el teclado empieza de nuevo desde arriba de todo.
+ */
+const botonCarpeta = ref<HTMLButtonElement | null>(null);
+
+watch(
+	() => props.panel,
+	async (ahora, antes) => {
+		if (ahora !== 'lista' || antes === 'lista') return;
+		await nextTick();
+		botonCarpeta.value?.focus();
+	}
+);
 
 /** La hora si llegó hoy, el día si no. Ver `src/tools/fecha.ts`. */
 function cuandoLlego(fecha: string): string {
@@ -44,7 +68,22 @@ function cuentaDe(mensaje: Resumen): string {
 </script>
 
 <template>
-  <div class="flex w-80 shrink-0 flex-col overflow-y-auto rounded-corner border border-ui-border bg-ui-surface/45">
+  <div
+    class="w-full shrink-0 flex-col overflow-y-auto rounded-corner border border-ui-border bg-ui-surface/45 md:flex md:w-80"
+    :class="panel === 'lista' ? 'flex' : 'hidden'">
+    <!-- El nombre de la carpeta como botón, sólo en angosto: es por donde se
+         llega a la lista de carpetas. Un botón con el nombre adentro dice a
+         dónde lleva y qué se está mirando; un icono de menú, ninguna de las
+         dos. De `md` para arriba las carpetas están al lado. -->
+    <button
+      ref="botonCarpeta"
+      type="button"
+      class="flex items-center gap-1 border-ui-border border-b px-3 py-2 text-left text-sm hover:bg-ui-surface md:hidden"
+      @click="emit('carpetas')">
+      <span class="truncate font-medium">{{ carpeta }}</span>
+      <span class="text-tx-muted text-xs">▾</span>
+    </button>
+
     <p v-if="cargando && !hayAlgo" class="p-3 text-tx-muted text-sm" role="status">
       {{ t('lista.cargando') }}
     </p>
