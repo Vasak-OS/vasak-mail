@@ -6,6 +6,7 @@
 mod comandos;
 mod correo;
 mod locales;
+mod ventana;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -44,6 +45,10 @@ pub fn run() {
         // evento que la ventana escucha. Ver `correo.rs`.
         .setup(|app| {
             correo::escuchar(app.handle().clone());
+            // La ventana nace oculta y la muestra el frontend cuando ya tiene los
+            // textos y el tema. Esto la muestra igual si el frontend nunca llega:
+            // ver `ventana.rs`.
+            ventana::mostrar_aunque_el_frontend_falle(app.handle().clone());
             Ok(())
         })
         .run(tauri::generate_context!())
