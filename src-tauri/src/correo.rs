@@ -94,10 +94,17 @@ pub struct Abierto {
     /// El mensaje era más largo de lo que se trae. Se dice: un texto que termina
     /// a la mitad sin explicación parece un mensaje roto.
     pub recortado: bool,
-    /// Trae algo pegado. Se dice aunque **todavía no se pueda abrir**: quien lee
-    /// un mensaje y no se entera de que traía un archivo, pierde el archivo.
     /// Los archivos pegados: cuáles hay, cómo se llaman y qué número de parte
-    /// tienen. Era un booleano; ahora es la lista.
+    /// tienen. Era un booleano —«trae algo»— y ahora es la lista.
+    ///
+    /// Se nombran aunque **todavía no se puedan abrir**: quien lee un mensaje y
+    /// no se entera de que traía un archivo, lo pierde. Saber cuál es perderlo
+    /// más despacio, pero el nombre es lo que después deja ir a buscarlo.
+    ///
+    /// **Si `recortado` es cierto, esta lista puede estar corta.** Se arma
+    /// mirando lo que se trajo, y lo que se trae tiene tope: un adjunto que
+    /// quedó más allá del corte no aparece. Lo cubre el aviso de que el mensaje
+    /// está recortado, que la ventana ya tiene que dar igual.
     pub adjuntos: Vec<Adjunto>,
     /// El identificador del mensaje, para enganchar la respuesta a la
     /// conversación. Vacío si el mensaje no traía uno, que pasa.
