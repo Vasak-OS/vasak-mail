@@ -16,6 +16,8 @@ import { responder as armarRespuesta } from '@/tools/responder';
 const { t, locale } = useI18n();
 const {
 	cuentas,
+	combinada,
+	sinLeerEnTotal,
 	elegida,
 	casillas,
 	casilla,
@@ -51,6 +53,11 @@ const { actualizar, icono } = useReactiveIcons({
  * con varias cuentas conectadas equivocarse de casilla es fácil y no se nota.
  */
 const dondeEstoy = computed(() => {
+	// En la combinada no hay una cuenta que nombrar, y la carpeta es la de
+	// entrada de todas: se dice así y no con el nombre de una.
+	if (combinada.value) {
+		return { carpeta: t('cuentas.todas'), cuenta: '' };
+	}
 	const abierta = casillas.value.find((c) => c.ruta === casilla.value);
 	return {
 		carpeta: abierta ? nombreDeCasilla(abierta, t) : t('casillas.entrada'),
@@ -82,7 +89,11 @@ const VACIO: Borrador = {
 
 function escribir() {
 	redactando.value = { ...VACIO };
-	cuentaDelBorrador.value = elegida.value;
+	// En la combinada no hay una cuenta elegida, así que se toma la primera y se
+	// muestra cuál es en la ventana de redacción, donde se puede cambiar. Mandar
+	// desde «todas» no quiere decir nada, y adivinar en silencio es cómo sale un
+	// correo con la identidad equivocada.
+	cuentaDelBorrador.value = combinada.value ? (cuentas.value[0]?.account_id ?? '') : elegida.value;
 	esRespuesta.value = false;
 }
 
@@ -133,7 +144,10 @@ function responderAlAbierto() {
 		en_respuesta_a: respuesta.en_respuesta_a,
 		referencias: respuesta.referencias,
 	};
-	cuentaDelBorrador.value = elegida.value;
+	// **La cuenta del mensaje y no la elegida.** En la bandeja combinada son dos
+	// cosas distintas, y responder desde la elegida mandaba la respuesta con la
+	// identidad de otra casilla — a alguien que le escribió a la primera.
+	cuentaDelBorrador.value = abierto.value.account_id;
 	esRespuesta.value = true;
 }
 
@@ -245,6 +259,7 @@ onUnmounted(() => {
           :casillas="casillas"
           :casilla="casilla"
           :salientes="salientes"
+          :sin-leer-en-total="sinLeerEnTotal"
           @elegir="elegir"
           @elegir-casilla="elegirCasilla"
           @escribir="escribir"
@@ -253,6 +268,8 @@ onUnmounted(() => {
           :mensajes="mensajes"
           :abierto="abierto"
           :cargando="cargandoLista"
+          :combinada="combinada"
+          :cuentas="cuentas"
           @abrir="abrir" />
         <MensajeComponent
           :abierto="abierto"
@@ -267,6 +284,9 @@ onUnmounted(() => {
         :inicial="redactando"
         :es-respuesta="esRespuesta"
         :enviando="enviando"
+        :cuentas="cuentas"
+        :cuenta="cuentaDelBorrador"
+        @elegir-cuenta="cuentaDelBorrador = $event"
         @enviar="enviarBorrador"
         @cerrar="redactando = null" />
     </div>

@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef } from 'vue';
-import type { Borrador } from '@/composables/use-correo';
+import type { Borrador, Cuenta } from '@/composables/use-correo';
 import { direcciones } from '@/tools/responder';
 
 const props = defineProps<{
@@ -10,10 +10,15 @@ const props = defineProps<{
 	/** Si es una respuesta, para el título. */
 	esRespuesta: boolean;
 	enviando: boolean;
+	/** Todas las conectadas, para poder elegir desde cuál sale. */
+	cuentas: Cuenta[];
+	/** Desde cuál sale. */
+	cuenta: string;
 }>();
 
 const emit = defineEmits<{
 	enviar: [borrador: Borrador];
+	elegirCuenta: [accountId: string];
 	cerrar: [];
 }>();
 
@@ -23,6 +28,22 @@ const para = ref(props.inicial.para.join(', '));
 const cc = ref(props.inicial.cc.join(', '));
 const asunto = ref(props.inicial.asunto);
 const cuerpo = ref(props.inicial.cuerpo);
+
+/**
+ * De qué cuenta sale, siempre a la vista.
+ *
+ * **No es un adorno.** Con la bandeja combinada, lo que se está mirando y lo que
+ * responde pueden ser cuentas distintas, y una respuesta que sale con la
+ * identidad equivocada no se deshace: la lee quien la recibe, con otra dirección
+ * de remitente, y nadie se entera de este lado.
+ *
+ * Con una sola cuenta conectada se dice igual pero no se puede cambiar: no hay
+ * a qué.
+ */
+const remitente = computed(
+	() => props.cuentas.find((c) => c.account_id === props.cuenta)?.display_name ?? ''
+);
+const sePuedeElegir = computed(() => props.cuentas.length > 1);
 
 const campoCuerpo = useTemplateRef<HTMLTextAreaElement>('campoCuerpo');
 const campoPara = useTemplateRef<HTMLInputElement>('campoPara');
@@ -88,8 +109,11 @@ onUnmounted(() => devolverElFoco?.focus());
  * del motor y esto anda en todas.
  */
 function atraparElFoco(evento: KeyboardEvent) {
+	// `select` entre los demás: el desplegable de «Desde» es el primer elemento
+	// del formulario, así que si no entra en esta lista la trampa lo saltea al
+	// dar la vuelta y no hay forma de llegar a él con el teclado.
 	const dentro = dialogo.value?.querySelectorAll<HTMLElement>(
-		'input, textarea, button:not([disabled])'
+		'input, select, textarea, button:not([disabled])'
 	);
 	if (!dentro || dentro.length === 0) {
 		return;
@@ -147,6 +171,26 @@ function cerrar() {
       <h2 class="font-title text-lg">
         {{ esRespuesta ? t('redactar.tituloRespuesta') : t('redactar.titulo') }}
       </h2>
+
+      <!-- Desde qué cuenta sale, arriba de todo: es lo primero que hay que
+           poder comprobar cuando hay más de una casilla. -->
+      <label class="flex flex-col gap-0.5">
+        <span class="text-tx-muted text-xs">{{ t('redactar.desde') }}</span>
+        <select
+          v-if="sePuedeElegir"
+          class="rounded-corner-sm border border-ui-border-strong bg-ui-surface px-2 py-1 text-sm text-tx-main"
+          :value="cuenta"
+          @change="emit('elegirCuenta', ($event.target as HTMLSelectElement).value)">
+          <option
+            v-for="c in cuentas"
+            :key="c.account_id"
+            class="bg-ui-bg text-tx-main"
+            :value="c.account_id">
+            {{ c.display_name }}
+          </option>
+        </select>
+        <span v-else class="px-2 py-1 text-sm">{{ remitente }}</span>
+      </label>
 
       <label class="flex flex-col gap-0.5">
         <span class="text-tx-muted text-xs">{{ t('redactar.para') }}</span>

@@ -1,5 +1,15 @@
 import { invoke } from '@tauri-apps/api/core';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
+import { claveDe, combinados, esElMismo, TODAS } from '@/tools/bandeja';
+
+/**
+ * La carpeta de entrada, que es la única que tienen todas las cuentas con el
+ * mismo nombre.
+ *
+ * Es lo que se muestra en la bandeja combinada: las demás carpetas son de cada
+ * cuenta, y «Enviados» de una no es «Enviados» de la otra — puede ni existir.
+ */
+const ENTRADA = 'INBOX';
 
 /** Una cuenta con correo. */
 export interface Cuenta {
@@ -23,8 +33,19 @@ export interface Casilla {
 	seleccionable: boolean;
 }
 
-/** Un mensaje en la lista, sin su cuerpo. */
+/**
+ * Un mensaje en la lista, sin su cuerpo.
+ *
+ * `account_id` y `casilla` **no vienen del servicio**: se los pone esta ventana
+ * al traerlos, porque es la que sabe a quién se los pidió. Van pegados a cada
+ * mensaje y no leídos de la cuenta elegida en el momento de usarlos, que es lo
+ * que hace que abrir, marcar y responder no puedan equivocarse de cuenta cuando
+ * la lista es la combinada — o cuando alguien cambia de carpeta mientras un
+ * pedido viaja. Ver `tools/bandeja.ts`.
+ */
 export interface Resumen {
+	account_id: string;
+	casilla: string;
 	uid: number;
 	/** Cómo se firma quien lo mandó. */
 	de: string;
@@ -81,6 +102,12 @@ export interface Saliente {
  */
 export function useCorreo() {
 	const cuentas = ref<Cuenta[]>([]);
+	/**
+	 * Qué se está mirando: una cuenta, o [`TODAS`] si es la bandeja combinada.
+	 *
+	 * Vacío quiere decir otra cosa —que no hay ninguna cuenta conectada— y por eso
+	 * «todas» tiene su propio valor y no reusa el vacío.
+	 */
 	const elegida = ref('');
 	const casillas = ref<Casilla[]>([]);
 	/**
@@ -90,7 +117,19 @@ export function useCorreo() {
 	 * con IDLE, o sea la única que aparece al instante. Las demás se traen del
 	 * servidor cuando alguien las abre.
 	 */
-	const casilla = ref('INBOX');
+	const casilla = ref(ENTRADA);
+
+	/** Si lo que se está mirando es la bandeja combinada. */
+	const combinada = computed(() => elegida.value === TODAS);
+
+	/**
+	 * Cuánto correo sin leer hay en total.
+	 *
+	 * Se suma acá y no lo manda el servicio: la cuenta que falló trae cero, y
+	 * sumarlo igual es correcto — no es que no tenga correo, es que no se sabe, y
+	 * eso ya lo dice su propio aviso de error.
+	 */
+	const sinLeerEnTotal = computed(() => cuentas.value.reduce((total, c) => total + c.sin_leer, 0));
 	const mensajes = ref<Resumen[]>([]);
 	const abierto = ref<Resumen | null>(null);
 	const cuerpo = ref<Abierto | null>(null);
@@ -137,16 +176,25 @@ export function useCorreo() {
 			cuentas.value = nuevas;
 			error.value = '';
 
-			// Si no hay ninguna elegida, o la que estaba ya no está, se toma la
-			// primera: abrir en una lista vacía cuando hay correo es peor que
-			// elegir por la persona.
-			if (!nuevas.some((c) => c.account_id === elegida.value)) {
-				const primera = nuevas[0]?.account_id ?? '';
-				if (primera) {
-					await elegir(primera);
+			// Qué mostrar si lo que estaba elegido ya no vale.
+			//
+			// **Con más de una cuenta, la combinada**: es lo que la gente espera
+			// de un cliente de correo con varias casillas, y elegir una por ella
+			// esconde el correo de las otras sin decirlo. Con una sola, esa
+			// cuenta, porque «todas» de una sola es lo mismo con un clic de más.
+			const sigueValiendo =
+				(elegida.value === TODAS && nuevas.length > 1) ||
+				nuevas.some((c) => c.account_id === elegida.value);
+
+			if (!sigueValiendo) {
+				if (nuevas.length > 1) {
+					await elegir(TODAS);
+				} else if (nuevas.length === 1) {
+					await elegir(nuevas[0].account_id);
 				} else {
 					elegida.value = '';
 					mensajes.value = [];
+					casillas.value = [];
 					cerrar();
 				}
 			} else {
@@ -162,6 +210,21 @@ export function useCorreo() {
 		}
 	}
 
+	/**
+	 * Los mensajes de una cuenta y una carpeta, con de dónde salieron pegados.
+	 *
+	 * El sello va acá, en el único lugar que sabe a quién se los pidió. De ahí en
+	 * adelante nada vuelve a mirar la cuenta elegida para saber de quién es un
+	 * mensaje.
+	 */
+	async function traerDe(accountId: string, ruta: string): Promise<Resumen[]> {
+		const lista = await invoke<Resumen[]>('listar_mensajes', {
+			accountId,
+			casilla: ruta,
+		});
+		return lista.map((m) => ({ ...m, account_id: accountId, casilla: ruta }));
+	}
+
 	async function cargarMensajes() {
 		if (!elegida.value) {
 			mensajes.value = [];
@@ -170,20 +233,49 @@ export function useCorreo() {
 
 		const mio = ++listaVigente;
 		cargandoLista.value = true;
+		const fallos: string[] = [];
+
 		try {
-			const lista = await invoke<Resumen[]>('listar_mensajes', {
-				accountId: elegida.value,
-				casilla: casilla.value,
-			});
+			let lista: Resumen[];
+
+			if (combinada.value) {
+				// **Una cuenta que falla no puede vaciar la bandeja de las otras.**
+				// Se trae lo que se pueda y se dice lo que no, con el nombre de la
+				// cuenta adelante: «no se pudo leer» no le dice a nadie cuál de sus
+				// dos casillas está rota.
+				//
+				// Siempre la de entrada: las carpetas son de cada cuenta y
+				// «Enviados» de una no es «Enviados» de la otra.
+				const listas = await Promise.all(
+					cuentas.value.map(async (c) => {
+						try {
+							return await traerDe(c.account_id, ENTRADA);
+						} catch (e) {
+							fallos.push(`${c.display_name}: ${e}`);
+							return [];
+						}
+					})
+				);
+				lista = combinados(listas);
+			} else {
+				lista = await traerDe(elegida.value, casilla.value);
+			}
+
 			if (mio !== listaVigente) {
 				return;
 			}
 			mensajes.value = lista;
+			error.value = fallos.join(' · ');
 
-			// Si el que estaba abierto ya no está en la casilla, se cierra el
-			// panel: dejarlo mostraría un mensaje que se borró desde otro
-			// dispositivo como si siguiera ahí.
-			if (abierto.value && !lista.some((m) => m.uid === abierto.value?.uid)) {
+			// Si el que estaba abierto ya no está, se cierra el panel: dejarlo
+			// mostraría un mensaje que se borró desde otro dispositivo como si
+			// siguiera ahí.
+			//
+			// **Por la clave entera y no por el `uid`**: en la combinada, el 7 de
+			// una cuenta no es el 7 de la otra, y comparar números dejaba abierto
+			// un mensaje que ya no estaba porque otra cuenta tenía uno con el
+			// mismo número.
+			if (abierto.value && !lista.some((m) => esElMismo(m, abierto.value))) {
 				cerrar();
 			}
 		} catch (e) {
@@ -205,7 +297,9 @@ export function useCorreo() {
 	 * servidor que no contesta el `LIST` no puede dejar a nadie sin su correo.
 	 */
 	async function cargarCasillas() {
-		if (!elegida.value) {
+		// En la combinada no se listan: las carpetas son de cada cuenta y una
+		// lista mezclada no se podría abrir.
+		if (!elegida.value || combinada.value) {
 			casillas.value = [];
 			return;
 		}
@@ -219,12 +313,13 @@ export function useCorreo() {
 		}
 	}
 
+	/** Muestra una cuenta, o [`TODAS`] para la bandeja combinada. */
 	async function elegir(accountId: string) {
 		elegida.value = accountId;
 		// Volver a la de entrada al cambiar de cuenta. La carpeta que estaba
 		// abierta es de la cuenta anterior: «Enviados» de una no es «Enviados»
 		// de la otra, y puede no existir.
-		casilla.value = 'INBOX';
+		casilla.value = ENTRADA;
 		cerrar();
 		casillas.value = [];
 		await cargarMensajes();
@@ -233,7 +328,8 @@ export function useCorreo() {
 
 	/** Abre una carpeta de la cuenta que ya está elegida. */
 	async function elegirCasilla(ruta: string) {
-		if (casilla.value === ruta) {
+		// En la combinada no hay carpetas que elegir: son de cada cuenta.
+		if (combinada.value || casilla.value === ruta) {
 			return;
 		}
 		casilla.value = ruta;
@@ -249,9 +345,12 @@ export function useCorreo() {
 		error.value = '';
 
 		try {
+			// **De dónde salió el mensaje, no de lo que está elegido ahora.** En
+			// la combinada eso serían dos cosas distintas, y el panel mostraría el
+			// cuerpo de un mensaje con el encabezado de otro.
 			const traido = await invoke<Abierto>('abrir_mensaje', {
-				accountId: elegida.value,
-				casilla: casilla.value,
+				accountId: resumen.account_id,
+				casilla: resumen.casilla,
 				uid: resumen.uid,
 			});
 			if (mio !== mensajeVigente) {
@@ -284,52 +383,53 @@ export function useCorreo() {
 	 * encima de un mensaje con las flechas te vacíe el contador de sin leer es de
 	 * los errores más molestos que puede tener un cliente de correo.
 	 */
-	async function marcarLeido(uid: number) {
-		// **La cuenta se captura acá y no se vuelve a leer.** Entre el pedido y
-		// su respuesta la persona puede haber cambiado de casilla, y usar
-		// `elegida.value` del otro lado del `await` marcaba como leído el
-		// mensaje 7 de la cuenta que quedó a la vista en vez del de la cuenta a
-		// la que se le pidió — y le restaba uno a su contador.
-		const cuentaId = elegida.value;
+	async function marcarLeido(mensaje: Resumen) {
+		// **Todo sale del mensaje y nada de lo que está elegido ahora.** Entre el
+		// pedido y su respuesta la persona puede cambiar de cuenta o de carpeta,
+		// y leerlo del otro lado del `await` marcaba como leído el mensaje 7 de
+		// la que quedó a la vista en vez del de la que se le pidió — y le restaba
+		// uno a su contador. En la bandeja combinada eso deja de ser hipotético:
+		// los dos «7» están en la misma lista.
+		const clave = claveDe(mensaje);
 
 		// Uno por vez y por mensaje. El botón sigue activo mientras el comando
-		// viaja, así que dos clics rápidos mandan el mismo `uid` dos veces; el
-		// servidor lo aguanta —marcar dos veces lo leído no hace nada— pero acá
-		// se restaba uno al contador cada vez, y la cuenta quedaba diciendo
-		// menos correo sin leer del que tiene.
-		const casillaId = casilla.value;
-		const enCurso = `${cuentaId}:${casillaId}:${uid}`;
-		if (marcando.has(enCurso)) {
+		// viaja, así que dos clics rápidos mandan lo mismo dos veces; el servidor
+		// lo aguanta —marcar dos veces lo leído no hace nada— pero acá se restaba
+		// uno al contador cada vez, y la cuenta quedaba diciendo menos correo sin
+		// leer del que tiene.
+		if (marcando.has(clave)) {
 			return;
 		}
-		marcando.add(enCurso);
+		marcando.add(clave);
 
 		try {
-			await invoke('marcar_leido', { accountId: cuentaId, casilla: casillaId, uid });
+			await invoke('marcar_leido', {
+				accountId: mensaje.account_id,
+				casilla: mensaje.casilla,
+				uid: mensaje.uid,
+			});
 
 			// El contador de **esa** cuenta, esté a la vista o no: el mensaje se
 			// leyó igual.
-			const cuenta = cuentas.value.find((c) => c.account_id === cuentaId);
+			const cuenta = cuentas.value.find((c) => c.account_id === mensaje.account_id);
 			if (cuenta && cuenta.sin_leer > 0) {
 				cuenta.sin_leer -= 1;
 			}
 
-			// Lo que se ve, en cambio, sólo si sigue siendo lo que se ve. La
-			// lista de mensajes es la de la casilla abierta ahora.
-			if (elegida.value !== cuentaId || casilla.value !== casillaId) {
-				return;
+			// Lo que se ve, en cambio, se busca por la clave entera: en la
+			// combinada hay varios mensajes con el mismo `uid`, y marcar por
+			// número ponía en negrita normal al de otra cuenta.
+			const enLaLista = mensajes.value.find((m) => esElMismo(m, mensaje));
+			if (enLaLista) {
+				enLaLista.sin_leer = false;
 			}
-			const mensaje = mensajes.value.find((m) => m.uid === uid);
-			if (mensaje) {
-				mensaje.sin_leer = false;
-			}
-			if (abierto.value?.uid === uid) {
+			if (esElMismo(abierto.value, mensaje) && abierto.value) {
 				abierto.value = { ...abierto.value, sin_leer: false };
 			}
 		} catch (e) {
 			error.value = String(e);
 		} finally {
-			marcando.delete(enCurso);
+			marcando.delete(clave);
 		}
 	}
 
@@ -381,6 +481,8 @@ export function useCorreo() {
 
 	return {
 		cuentas,
+		combinada,
+		sinLeerEnTotal,
 		salientes,
 		enviando,
 		enviar,

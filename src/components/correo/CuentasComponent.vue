@@ -3,6 +3,7 @@ import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import { computed } from 'vue';
 import SalidaComponent from '@/components/correo/SalidaComponent.vue';
 import type { Casilla, Cuenta, Saliente } from '@/composables/use-correo';
+import { TODAS } from '@/tools/bandeja';
 import { nombreDeCasilla } from '@/tools/casillas';
 import { claveSegunCantidad, interpolar } from '@/tools/interpolar';
 
@@ -12,6 +13,8 @@ const props = defineProps<{
 	casillas: Casilla[];
 	casilla: string;
 	salientes: Saliente[];
+	/** Cuánto correo sin leer hay entre todas, para la entrada de arriba. */
+	sinLeerEnTotal: number;
 }>();
 const emit = defineEmits<{
 	elegir: [accountId: string];
@@ -23,8 +26,20 @@ const emit = defineEmits<{
 const { t } = useI18n();
 
 function sinLeerDe(cuenta: Cuenta): string {
-	return interpolar(t(claveSegunCantidad('cuentas.sinLeer', cuenta.sin_leer)), cuenta.sin_leer);
+	return cuantosSinLeer(cuenta.sin_leer);
 }
+
+function cuantosSinLeer(cuantos: number): string {
+	return interpolar(t(claveSegunCantidad('cuentas.sinLeer', cuantos)), cuantos);
+}
+
+/**
+ * La entrada de «Todas» se muestra sólo con más de una cuenta.
+ *
+ * Con una sola es lo mismo con un clic de más, y encima confunde: parecen dos
+ * bandejas distintas que siempre dicen lo mismo.
+ */
+const hayVarias = computed(() => props.cuentas.length > 1);
 
 /**
  * Las carpetas que se pueden abrir, con las conocidas primero.
@@ -78,6 +93,21 @@ function nombreDe(c: Casilla): string {
 
       <h2 class="font-medium text-tx-muted text-xs uppercase">{{ t('cuentas.titulo') }}</h2>
       <ul class="flex flex-col gap-1">
+        <!-- Todo junto, arriba de las cuentas. Es lo que se mira casi siempre
+             cuando hay más de una casilla, así que va donde cae el ojo. -->
+        <li v-if="hayVarias">
+          <button
+            type="button"
+            class="flex w-full flex-col items-start gap-0.5 rounded-corner px-2 py-1 text-left hover:bg-ui-surface"
+            :class="{ 'bg-ui-surface': elegida === TODAS }"
+            :aria-current="elegida === TODAS ? 'true' : undefined"
+            @click="emit('elegir', TODAS)">
+            <span class="w-full truncate font-medium text-sm">{{ t('cuentas.todas') }}</span>
+            <span v-if="sinLeerEnTotal > 0" class="text-primary text-xs">
+              {{ cuantosSinLeer(sinLeerEnTotal) }}
+            </span>
+          </button>
+        </li>
         <li v-for="cuenta in cuentas" :key="cuenta.account_id">
           <button
             type="button"

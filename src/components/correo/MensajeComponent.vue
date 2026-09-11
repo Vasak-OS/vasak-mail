@@ -8,7 +8,10 @@ const props = defineProps<{
 	cuerpo: Abierto | null;
 	cargando: boolean;
 }>();
-const emit = defineEmits<{ marcarLeido: [uid: number]; responder: [] }>();
+// El mensaje entero y no su `uid`: quien lo reciba necesita saber de qué cuenta
+// y de qué carpeta salió, porque en la bandeja combinada el número solo no
+// alcanza para encontrarlo. Ver `tools/bandeja.ts`.
+const emit = defineEmits<{ marcarLeido: [mensaje: Resumen]; responder: [] }>();
 
 const { t, locale } = useI18n();
 
@@ -66,7 +69,7 @@ const cuando = computed(() => {
             v-if="abierto.sin_leer"
             type="button"
             class="rounded-corner border border-ui-border-strong px-2 py-0.5 text-sm hover:bg-ui-surface"
-            @click="emit('marcarLeido', abierto.uid)">
+            @click="emit('marcarLeido', abierto)">
             {{ t('mensaje.marcarLeido') }}
           </button>
         </div>

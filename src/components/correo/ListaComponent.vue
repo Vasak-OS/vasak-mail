@@ -1,13 +1,18 @@
 <script lang="ts" setup>
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import { computed } from 'vue';
-import type { Resumen } from '@/composables/use-correo';
+import type { Cuenta, Resumen } from '@/composables/use-correo';
+import { claveDe, esElMismo } from '@/tools/bandeja';
 import { cuando } from '@/tools/fecha';
 
 const props = defineProps<{
 	mensajes: Resumen[];
 	abierto: Resumen | null;
 	cargando: boolean;
+	/** Si se están viendo todas las cuentas juntas. */
+	combinada: boolean;
+	/** Para poder decir de qué cuenta es cada fila cuando están juntas. */
+	cuentas: Cuenta[];
 }>();
 const emit = defineEmits<{ abrir: [mensaje: Resumen] }>();
 
@@ -19,6 +24,23 @@ function cuandoLlego(fecha: string): string {
 }
 
 const hayAlgo = computed(() => props.mensajes.length > 0);
+
+/**
+ * De qué cuenta es una fila, para mostrarlo en la bandeja combinada.
+ *
+ * **Sin esto la función es peligrosa y no sólo incómoda**: responder desde una
+ * lista mezclada manda desde la cuenta del mensaje, y si no se ve cuál es, la
+ * respuesta sale con una identidad que no era la que se creía. Es el error
+ * clásico de una bandeja combinada y el más difícil de notar.
+ *
+ * Sólo cuando están juntas: con una sola cuenta a la vista, repetir su nombre en
+ * cada fila es ruido.
+ */
+const nombres = computed(() => new Map(props.cuentas.map((c) => [c.account_id, c.display_name])));
+
+function cuentaDe(mensaje: Resumen): string {
+	return props.combinada ? (nombres.value.get(mensaje.account_id) ?? '') : '';
+}
 </script>
 
 <template>
@@ -29,12 +51,15 @@ const hayAlgo = computed(() => props.mensajes.length > 0);
     <p v-else-if="!hayAlgo" class="p-3 text-tx-muted text-sm">{{ t('lista.vacia') }}</p>
 
     <ul v-else class="flex flex-col">
-      <li v-for="mensaje in mensajes" :key="mensaje.uid">
+      <!-- La clave es `(cuenta, carpeta, uid)` y no el `uid`: en la combinada
+           el 7 de una cuenta y el 7 de otra son dos mensajes distintos, y con
+           claves repetidas Vue reusa el nodo equivocado al actualizar. -->
+      <li v-for="mensaje in mensajes" :key="claveDe(mensaje)">
         <button
           type="button"
           class="flex w-full flex-col gap-0.5 border-ui-border border-b px-3 py-2 text-left hover:bg-ui-surface/60"
-          :class="{ 'bg-ui-surface': mensaje.uid === abierto?.uid }"
-          :aria-current="mensaje.uid === abierto?.uid ? 'true' : undefined"
+          :class="{ 'bg-ui-surface': esElMismo(mensaje, abierto) }"
+          :aria-current="esElMismo(mensaje, abierto) ? 'true' : undefined"
           @click="emit('abrir', mensaje)">
           <div class="flex w-full items-baseline gap-2">
             <!-- Sin leer se marca con el punto **y** con la negrita: el color
@@ -72,6 +97,11 @@ const hayAlgo = computed(() => props.mensajes.length > 0);
               role="img"
               :aria-label="t('lista.conAdjuntos')">📎</span>
           </div>
+          <!-- De qué cuenta es. Sólo cuando están todas juntas: con una sola a
+               la vista, repetir su nombre en cada fila es ruido. -->
+          <span v-if="cuentaDe(mensaje)" class="truncate text-tx-muted text-xs">
+            {{ cuentaDe(mensaje) }}
+          </span>
         </button>
       </li>
     </ul>

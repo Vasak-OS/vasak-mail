@@ -20,6 +20,7 @@ casillas:
   todo: All mail
 
 cuentas:
+  todas: All accounts
   titulo: Accounts
   sinCuentasTitulo: No mailboxes yet
   sinCuentasDescripcion: Connect a mail account from Settings and its messages will show up here.
@@ -47,6 +48,7 @@ redactar:
   responder: Reply
   titulo: New message
   tituloRespuesta: Reply
+  desde: From
   para: To
   cc: Cc
   asunto: Subject

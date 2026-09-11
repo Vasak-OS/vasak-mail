@@ -29,6 +29,7 @@ casillas:
   todo: Todo el correo
 
 cuentas:
+  todas: Todas las cuentas
   titulo: Cuentas
   sinCuentasTitulo: Todavía no hay ninguna casilla
   sinCuentasDescripcion: Conectá una cuenta de correo desde Configuración y sus mensajes aparecen acá.
@@ -60,6 +61,7 @@ redactar:
   responder: Responder
   titulo: Mensaje nuevo
   tituloRespuesta: Responder
+  desde: Desde
   para: Para
   cc: Cc
   asunto: Asunto
