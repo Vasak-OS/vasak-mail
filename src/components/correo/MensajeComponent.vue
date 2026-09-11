@@ -1,9 +1,12 @@
 <script lang="ts" setup>
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
-import { computed } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import type { Abierto, Resumen } from '@/composables/use-correo';
+import type { Panel } from '@/tools/paneles';
 
 const props = defineProps<{
+	/** Cuál de los tres paneles se ve. Sólo importa en una ventana angosta. */
+	panel: Panel;
 	abierto: Resumen | null;
 	cuerpo: Abierto | null;
 	cargando: boolean;
@@ -11,9 +14,29 @@ const props = defineProps<{
 // El mensaje entero y no su `uid`: quien lo reciba necesita saber de qué cuenta
 // y de qué carpeta salió, porque en la bandeja combinada el número solo no
 // alcanza para encontrarlo. Ver `tools/bandeja.ts`.
-const emit = defineEmits<{ marcarLeido: [mensaje: Resumen]; responder: [] }>();
+const emit = defineEmits<{ marcarLeido: [mensaje: Resumen]; responder: []; volver: [] }>();
 
 const { t, locale } = useI18n();
+
+/**
+ * El botón de volver, para mandarle el foco al abrir un mensaje.
+ *
+ * Es `md:hidden`, o sea que en una ventana ancha no se dibuja — y enfocar algo
+ * que no se dibuja no hace nada. Eso es lo que hace que esto no necesite
+ * preguntar el ancho de la ventana: en ancho, donde la lista sigue a la vista y
+ * moverle el foco a alguien sería quitárselo a la lista, la llamada es inocua;
+ * en angosto, donde el mensaje reemplazó a la lista, el foco lo sigue.
+ */
+const botonVolver = ref<HTMLButtonElement | null>(null);
+
+watch(
+	() => props.abierto,
+	async (ahora) => {
+		if (!ahora) return;
+		await nextTick();
+		botonVolver.value?.focus();
+	}
+);
 
 const cuando = computed(() => {
 	const fecha = props.abierto?.fecha;
@@ -32,11 +55,22 @@ const cuando = computed(() => {
 </script>
 
 <template>
-  <section class="flex min-w-0 flex-1 flex-col overflow-y-auto rounded-corner border border-ui-border bg-ui-surface/45">
+  <section
+    class="min-w-0 flex-1 flex-col overflow-y-auto rounded-corner border border-ui-border bg-ui-surface/45 md:flex"
+    :class="panel === 'mensaje' ? 'flex' : 'hidden'">
     <p v-if="!abierto" class="p-4 text-tx-muted text-sm">{{ t('mensaje.elegiUno') }}</p>
 
     <template v-else>
       <header class="flex flex-col gap-1 border-ui-border border-b p-4">
+        <!-- Sólo en angosto: de `md` para arriba la lista está al lado y no hay
+             de dónde volver. Un botón que no lleva a ningún lado confunde. -->
+        <button
+          ref="botonVolver"
+          type="button"
+          class="-ml-1 mb-1 self-start rounded-corner px-2 py-0.5 text-sm text-tx-muted hover:bg-ui-surface md:hidden"
+          @click="emit('volver')">
+          ← {{ t('mensaje.volver') }}
+        </button>
         <h1 class="font-title text-lg">{{ abierto.asunto || t('lista.sinAsunto') }}</h1>
         <p class="text-sm">
           <span class="text-tx-muted">{{ t('mensaje.de') }}: </span>

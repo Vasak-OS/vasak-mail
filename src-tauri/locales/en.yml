@@ -50,6 +50,7 @@ lista:
   conAdjuntos: Has an attachment
   noLeido: Unread
 mensaje:
+  volver: Back
   elegiUno: Pick a message to read it
   de: From
   cuando: When
