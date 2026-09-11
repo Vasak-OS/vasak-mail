@@ -5,6 +5,20 @@ ventana:
   minimizar: Minimise
   maximizar: Maximise
   cerrar: Close
+casillas:
+  titulo: Folders
+  # Names for the folders we recognise. An English server says "Sent" and a
+  # Spanish one "Elementos enviados"; the same folder being called different
+  # things per provider is noise. Ones we do not recognise keep the name
+  # whoever created them gave them, which is the right one.
+  entrada: Inbox
+  enviados: Sent
+  borradores: Drafts
+  papelera: Trash
+  spam: Junk
+  archivo: Archive
+  todo: All mail
+
 cuentas:
   titulo: Accounts
   sinCuentasTitulo: No mailboxes yet

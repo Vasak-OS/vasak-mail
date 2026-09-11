@@ -2,7 +2,7 @@
 //!
 //! Una capa fina sobre `correo.rs`: todo el trabajo lo hace el sincronizador.
 
-use crate::correo::{self, Abierto, Borrador, Cuenta, Resumen, Saliente};
+use crate::correo::{self, Abierto, Borrador, Casilla, Cuenta, Resumen, Saliente};
 
 /// Las cuentas con correo, y cuánto tienen sin leer.
 #[tauri::command]
@@ -10,22 +10,32 @@ pub async fn listar_cuentas() -> Result<Vec<Cuenta>, String> {
     correo::cuentas().await
 }
 
-/// Los últimos mensajes de una cuenta.
+/// Las carpetas de una cuenta.
 #[tauri::command]
-pub async fn listar_mensajes(account_id: String) -> Result<Vec<Resumen>, String> {
-    correo::mensajes(&account_id).await
+pub async fn listar_casillas(account_id: String) -> Result<Vec<Casilla>, String> {
+    correo::casillas(&account_id).await
+}
+
+/// Los últimos mensajes de una carpeta.
+#[tauri::command]
+pub async fn listar_mensajes(account_id: String, casilla: String) -> Result<Vec<Resumen>, String> {
+    correo::mensajes(&account_id, &casilla).await
 }
 
 /// El texto de un mensaje.
 #[tauri::command]
-pub async fn abrir_mensaje(account_id: String, uid: u32) -> Result<Abierto, String> {
-    correo::abrir(&account_id, uid).await
+pub async fn abrir_mensaje(
+    account_id: String,
+    casilla: String,
+    uid: u32,
+) -> Result<Abierto, String> {
+    correo::abrir(&account_id, &casilla, uid).await
 }
 
 /// Marca un mensaje como leído en el servidor.
 #[tauri::command]
-pub async fn marcar_leido(account_id: String, uid: u32) -> Result<(), String> {
-    correo::marcar_leido(&account_id, uid).await
+pub async fn marcar_leido(account_id: String, casilla: String, uid: u32) -> Result<(), String> {
+    correo::marcar_leido(&account_id, &casilla, uid).await
 }
 
 /// Pone un mensaje en la cola de salida.

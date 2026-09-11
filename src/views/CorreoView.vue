@@ -14,6 +14,8 @@ const { t, locale } = useI18n();
 const {
 	cuentas,
 	elegida,
+	casillas,
+	casilla,
 	mensajes,
 	abierto,
 	cuerpo,
@@ -24,6 +26,7 @@ const {
 	enviando,
 	cargarCuentas,
 	elegir,
+	elegirCasilla,
 	abrir,
 	marcarLeido,
 	enviar,
@@ -183,8 +186,11 @@ onUnmounted(() => {
       <CuentasComponent
         :cuentas="cuentas"
         :elegida="elegida"
+        :casillas="casillas"
+        :casilla="casilla"
         :salientes="salientes"
         @elegir="elegir"
+        @elegir-casilla="elegirCasilla"
         @escribir="escribir"
         @descartar="descartarSaliente" />
       <ListaComponent
