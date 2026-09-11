@@ -22,7 +22,7 @@ const hayAlgo = computed(() => props.mensajes.length > 0);
 </script>
 
 <template>
-  <div class="flex w-80 shrink-0 flex-col overflow-y-auto border-ui-border border-r">
+  <div class="flex w-80 shrink-0 flex-col overflow-y-auto rounded-corner border border-ui-border bg-ui-surface/45">
     <p v-if="cargando && !hayAlgo" class="p-3 text-tx-muted text-sm" role="status">
       {{ t('lista.cargando') }}
     </p>

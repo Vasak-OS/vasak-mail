@@ -3,6 +3,7 @@ import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import { computed } from 'vue';
 import SalidaComponent from '@/components/correo/SalidaComponent.vue';
 import type { Casilla, Cuenta, Saliente } from '@/composables/use-correo';
+import { nombreDeCasilla } from '@/tools/casillas';
 import { claveSegunCantidad, interpolar } from '@/tools/interpolar';
 
 const props = defineProps<{
@@ -52,23 +53,14 @@ const ordenadas = computed(() =>
 		})
 );
 
-/**
- * El nombre traducido de las carpetas conocidas.
- *
- * Un servidor en inglés dice «Sent» y uno en español «Elementos enviados»; que
- * la misma carpeta se llame distinto según el proveedor es ruido. Las que no se
- * reconocen se muestran con el nombre que les puso quien las creó, que es el
- * correcto.
- */
+/** Ver `tools/casillas.ts`, que es donde está la regla y sus pruebas. */
 function nombreDe(c: Casilla): string {
-	const clave = `casillas.${c.uso}`;
-	const traducido = t(clave);
-	return traducido === clave ? c.nombre : traducido;
+	return nombreDeCasilla(c, t);
 }
 </script>
 
 <template>
-  <aside class="flex w-52 shrink-0 flex-col gap-2 overflow-y-auto border-ui-border border-r p-3">
+  <aside class="flex w-52 shrink-0 flex-col gap-2 overflow-y-auto rounded-corner border border-ui-border bg-ui-surface/45 p-3">
     <!-- Sin ninguna cuenta, lo que hace falta es decir **qué hacer**. Una lista
          vacía sin explicación se lee como una aplicación rota. -->
     <div v-if="cuentas.length === 0" class="flex flex-col gap-1">

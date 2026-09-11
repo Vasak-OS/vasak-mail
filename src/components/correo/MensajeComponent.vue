@@ -29,7 +29,7 @@ const cuando = computed(() => {
 </script>
 
 <template>
-  <section class="flex min-w-0 flex-1 flex-col overflow-y-auto">
+  <section class="flex min-w-0 flex-1 flex-col overflow-y-auto rounded-corner border border-ui-border bg-ui-surface/45">
     <p v-if="!abierto" class="p-4 text-tx-muted text-sm">{{ t('mensaje.elegiUno') }}</p>
 
     <template v-else>
