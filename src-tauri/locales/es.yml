@@ -14,6 +14,20 @@ ventana:
   minimizar: Minimizar
   maximizar: Maximizar
   cerrar: Cerrar
+atajos:
+  titulo: Atajos de teclado
+  cerrar: Cerrar
+  nota: "Los atajos no se disparan mientras se escribe en un campo."
+  siguiente: Mensaje siguiente
+  anterior: Mensaje anterior
+  abrir: Abrir el primero
+  volver: Volver a la lista
+  responder: Responder
+  redactar: Escribir uno nuevo
+  actualizar: Actualizar
+  irALaEntrada: Ir a la bandeja de entrada
+  ayuda: Ver esta lista
+
 casillas:
   titulo: Carpetas
   # Los nombres de las carpetas conocidas. Un servidor en inglés dice «Sent» y
