@@ -58,11 +58,25 @@ export interface Resumen {
 	con_adjuntos: boolean;
 }
 
+/**
+ * Un archivo pegado a un mensaje.
+ *
+ * El nombre viene **ya saneado** del sincronizador: sin separadores de ruta,
+ * sin `..` y sin caracteres de control. Lo eligió quien mandó el mensaje, así
+ * que se propone y no se obedece.
+ */
+export interface Adjunto {
+	/** El número de parte en el árbol MIME, para pedirla al servidor. */
+	parte: string;
+	nombre: string;
+	tipo: string;
+}
+
 /** Un mensaje abierto. */
 export interface Abierto {
 	texto: string;
 	recortado: boolean;
-	adjuntos: boolean;
+	adjuntos: Adjunto[];
 	/** El identificador del original, para enganchar la respuesta al hilo. */
 	message_id: string;
 	referencias: string[];

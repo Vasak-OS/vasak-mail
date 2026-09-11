@@ -41,7 +41,7 @@ mensaje:
   cuando: When
   marcarLeido: Mark as read
   recortado: There is more to this message. This version only fetches the beginning.
-  adjuntos: This message has an attachment, and this version does not open them yet.
+  adjuntos: "This message has attachments. This version names them, and does not open them yet:"
   soloTexto: The message text is shown. Formatting and images are not loaded.
 redactar:
   nuevo: Write
