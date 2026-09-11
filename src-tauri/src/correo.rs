@@ -94,10 +94,17 @@ pub struct Abierto {
     /// El mensaje era más largo de lo que se trae. Se dice: un texto que termina
     /// a la mitad sin explicación parece un mensaje roto.
     pub recortado: bool,
-    /// Trae algo pegado. Se dice aunque **todavía no se pueda abrir**: quien lee
-    /// un mensaje y no se entera de que traía un archivo, pierde el archivo.
     /// Los archivos pegados: cuáles hay, cómo se llaman y qué número de parte
-    /// tienen. Era un booleano; ahora es la lista.
+    /// tienen. Era un booleano —«trae algo»— y ahora es la lista.
+    ///
+    /// Se nombran aunque **todavía no se puedan abrir**: quien lee un mensaje y
+    /// no se entera de que traía un archivo, lo pierde. Saber cuál es perderlo
+    /// más despacio, pero el nombre es lo que después deja ir a buscarlo.
+    ///
+    /// **Si `recortado` es cierto, esta lista puede estar corta.** Se arma
+    /// mirando lo que se trajo, y lo que se trae tiene tope: un adjunto que
+    /// quedó más allá del corte no aparece. Lo cubre el aviso de que el mensaje
+    /// está recortado, que la ventana ya tiene que dar igual.
     pub adjuntos: Vec<Adjunto>,
     /// El identificador del mensaje, para enganchar la respuesta a la
     /// conversación. Vacío si el mensaje no traía uno, que pasa.
@@ -426,7 +433,7 @@ mod tests {
     #[test]
     fn un_mensaje_abierto_trae_con_que_responderlo() {
         let json = r#"{
-            "texto": "Hola", "recortado": false, "adjuntos": false,
+            "texto": "Hola", "recortado": false, "adjuntos": [],
             "message_id": "<a@x>", "referencias": ["<a@x>"],
             "responder_a": "ana@ejemplo.com", "nombre": "Ana"
         }"#;
@@ -435,6 +442,27 @@ mod tests {
         assert_eq!(abierto.message_id, "<a@x>");
         assert_eq!(abierto.responder_a, "ana@ejemplo.com");
         assert_eq!(abierto.referencias, vec!["<a@x>"]);
+    }
+
+    /// Un mensaje real trae las dos cosas a la vez: adjuntos **y** con qué
+    /// responderlo. Los dos tests de arriba miran una mitad cada uno, y así una
+    /// mitad puede quedarse con la forma vieja del otro lado sin que nada se
+    /// queje — que es exactamente lo que pasó cuando `adjuntos` dejó de ser un
+    /// booleano. Éste lee la carga entera, tal como la arma el sincronizador.
+    #[test]
+    fn un_mensaje_con_adjuntos_tambien_se_puede_responder() {
+        let json = r#"{
+            "texto": "Te mando el presupuesto.", "recortado": false,
+            "adjuntos": [{"parte":"2","nombre":"presupuesto.pdf","tipo":"application/pdf"}],
+            "message_id": "<b@x>", "referencias": ["<a@x>", "<b@x>"],
+            "responder_a": "ana@ejemplo.com", "nombre": "Ana"
+        }"#;
+        let abierto: Abierto = serde_json::from_str(json).unwrap();
+
+        assert_eq!(abierto.adjuntos[0].nombre, "presupuesto.pdf");
+        assert_eq!(abierto.adjuntos[0].parte, "2");
+        assert_eq!(abierto.responder_a, "ana@ejemplo.com");
+        assert_eq!(abierto.referencias, vec!["<a@x>", "<b@x>"]);
     }
 
     /// El borrador viaja sin el `De`: lo pone el servicio con la dirección de

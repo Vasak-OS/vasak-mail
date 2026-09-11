@@ -2,13 +2,16 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
+import AtajosComponent from '@/components/correo/AtajosComponent.vue';
 import CuentasComponent from '@/components/correo/CuentasComponent.vue';
 import ListaComponent from '@/components/correo/ListaComponent.vue';
 import MensajeComponent from '@/components/correo/MensajeComponent.vue';
 import RedactarComponent from '@/components/correo/RedactarComponent.vue';
-import { type Borrador, useCorreo } from '@/composables/use-correo';
+import { type Borrador, type Resumen, useCorreo } from '@/composables/use-correo';
 import { useReactiveIcons } from '@/composables/useReactiveIcon';
 import WindowAppLayout from '@/layouts/WindowAppLayout.vue';
+import { Atajos } from '@/tools/atajos';
+import { claveDe } from '@/tools/bandeja';
 import { nombreDeCasilla } from '@/tools/casillas';
 import { interpolar } from '@/tools/interpolar';
 import { responder as armarRespuesta } from '@/tools/responder';
@@ -33,6 +36,7 @@ const {
 	elegir,
 	elegirCasilla,
 	abrir,
+	cerrar,
 	marcarLeido,
 	enviar,
 	descartarSaliente,
@@ -160,6 +164,87 @@ async function enviarBorrador(borrador: Borrador) {
 	}
 }
 
+/** Si está a la vista la lista de atajos. */
+const mostrandoAtajos = ref(false);
+
+const atajos = new Atajos();
+
+/**
+ * Moverse por la lista abre el mensaje, y eso es a propósito.
+ *
+ * Con el panel del mensaje siempre a la vista, una selección que no abre nada
+ * obligaría a apretar dos teclas para leer cada correo y a dibujar un segundo
+ * resaltado —el seleccionado y el abierto— que en tres paneles no se distingue
+ * de nada. El día que haya una ventana angosta, donde el mensaje tapa la lista,
+ * ahí sí hacen falta las dos cosas.
+ */
+function moverse(cuanto: number) {
+	if (mensajes.value.length === 0) {
+		return;
+	}
+	const actual = abierto.value
+		? mensajes.value.findIndex((m) => claveDe(m) === claveDe(abierto.value as Resumen))
+		: -1;
+	// Desde ninguno, `j` abre el primero y `k` el último: es lo que se espera de
+	// entrar por arriba o por abajo.
+	const siguiente = actual < 0 ? (cuanto > 0 ? 0 : mensajes.value.length - 1) : actual + cuanto;
+	const destino = mensajes.value[siguiente];
+	if (destino) {
+		abrir(destino);
+	}
+}
+
+function alApretar(evento: KeyboardEvent) {
+	// La lista de atajos se cierra con Escape, y eso no pasa por el mapa: es de
+	// este diálogo y no una acción de la aplicación.
+	if (evento.key === 'Escape' && mostrandoAtajos.value) {
+		mostrandoAtajos.value = false;
+		return;
+	}
+	// Con la ventana de redacción abierta el teclado es suyo. Sus propios atajos
+	// —Escape para cerrar, Tab para la trampa de foco— los maneja ella.
+	if (redactando.value) {
+		return;
+	}
+
+	const accion = atajos.apretar(evento);
+	// Una secuencia a medias también consume la tecla: la `g` de `g i` no tiene
+	// que llegar a la página.
+	if (accion || atajos.esperando()) {
+		evento.preventDefault();
+	}
+
+	switch (accion) {
+		case 'siguiente':
+			moverse(1);
+			break;
+		case 'anterior':
+			moverse(-1);
+			break;
+		case 'abrir':
+			if (!abierto.value) moverse(1);
+			break;
+		case 'volver':
+			cerrar();
+			break;
+		case 'responder':
+			responderAlAbierto();
+			break;
+		case 'redactar':
+			escribir();
+			break;
+		case 'actualizar':
+			cargarCuentas();
+			break;
+		case 'irALaEntrada':
+			elegirCasilla('INBOX');
+			break;
+		case 'ayuda':
+			mostrandoAtajos.value = true;
+			break;
+	}
+}
+
 let dejarDeEscuchar: UnlistenFn | null = null;
 /**
  * Si la vista ya se desmontó.
@@ -173,6 +258,11 @@ let dejarDeEscuchar: UnlistenFn | null = null;
 let desmontada = false;
 
 onMounted(async () => {
+	// En la ventana entera y no en un elemento: los atajos tienen que andar sin
+	// que haya que hacer clic en la lista primero, que es lo que pasaría si el
+	// oyente colgara de un panel.
+	window.addEventListener('keydown', alApretar);
+
 	// El oyente **antes** de la primera carga. El sincronizador avisa cuando
 	// llega correo; enganchándose después, un aviso que llegue durante esos dos
 	// segundos se pierde y la lista queda vieja hasta el siguiente.
@@ -192,6 +282,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
 	desmontada = true;
+	window.removeEventListener('keydown', alApretar);
 	dejarDeEscuchar?.();
 });
 </script>
@@ -241,6 +332,7 @@ onUnmounted(() => {
     <!-- `relative` porque la ventana de redacción va encima, no en una ventana
          aparte: escribir un correo es algo que se hace y se termina. -->
     <div class="relative flex min-h-0 flex-1 flex-col">
+      <AtajosComponent :abierto="mostrandoAtajos" @cerrar="mostrandoAtajos = false" />
       <!-- Lo que falló va a la vista y no a la consola: una casilla vacía y una
            que no se pudo leer se ven idénticas, y la diferencia importa. -->
       <p

@@ -5,6 +5,20 @@ ventana:
   minimizar: Minimise
   maximizar: Maximise
   cerrar: Close
+atajos:
+  titulo: Keyboard shortcuts
+  cerrar: Close
+  nota: "Shortcuts do not fire while you are typing in a field."
+  siguiente: Next message
+  anterior: Previous message
+  abrir: Open the first one
+  volver: Back to the list
+  responder: Reply
+  redactar: Write a new one
+  actualizar: Refresh
+  irALaEntrada: Go to the inbox
+  ayuda: Show this list
+
 casillas:
   titulo: Folders
   # Names for the folders we recognise. An English server says "Sent" and a
