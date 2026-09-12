@@ -64,6 +64,10 @@ lista:
   conAdjuntos: Has an attachment
   noLeido: Unread
 mensaje:
+  cuerpo: "Message body"
+  verTextoPelado: "View as plain text"
+  verConFormato: "View formatted"
+  imagenesBloqueadas: "This message wants to load {0} image(s) from an external server. They were not loaded: fetching them would tell the sender you opened it."
   volver: Back
   elegiUno: Pick a message to read it
   de: From

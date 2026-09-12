@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import { claveDe, combinados, esElMismo, TODAS } from '@/tools/bandeja';
 import { alcance, filtrados } from '@/tools/busqueda';
 import { noAntesDe, quedan } from '@/tools/deshacer';
+import type { Saneado } from '@/tools/formato';
 
 /**
  * La carpeta de entrada, que es la única que tienen todas las cuentas con el
@@ -79,6 +80,16 @@ export interface Abierto {
 	texto: string;
 	recortado: boolean;
 	adjuntos: Adjunto[];
+	/**
+	 * El mismo mensaje con su formato, ya saneado, o `null` si no traía HTML.
+	 *
+	 * Viene **además** del texto y no en su lugar: el texto plano se queda como
+	 * la vista segura de siempre y la ventana elige cuál muestra. Lo que hay acá
+	 * ya pasó por el saneador del servicio —sin `<script>`, sin `on*`, sin
+	 * `<iframe>` y sin ninguna imagen cargándose sola— y aun así se dibuja
+	 * aislado. Ver `tools/formato.ts`.
+	 */
+	con_formato: Saneado | null;
 	/** El identificador del original, para enganchar la respuesta al hilo. */
 	message_id: string;
 	referencias: string[];
