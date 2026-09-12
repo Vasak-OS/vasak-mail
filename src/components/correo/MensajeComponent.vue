@@ -71,8 +71,14 @@ function imagenesBloqueadas(cuantas: number): string {
  */
 const botonVolver = ref<HTMLButtonElement | null>(null);
 
-/** El adjunto que se está bajando, por su número de parte. */
-const guardando = ref('');
+/**
+ * Los adjuntos que se están bajando, por su número de parte.
+ *
+ * Un conjunto y no uno solo: con dos guardados en curso, el segundo pisaba al
+ * primero y el `finally` del que terminara antes desbloqueaba los dos botones
+ * mientras el otro seguía viajando.
+ */
+const guardando = ref<Set<string>>(new Set());
 /** Lo último que pasó al guardar: dónde quedó, o qué falló. */
 const avisoGuardar = ref('');
 
@@ -90,6 +96,17 @@ async function guardar(adjunto: Adjunto) {
 	}
 	avisoGuardar.value = '';
 
+	// **De qué mensaje es, antes de abrir el diálogo.** Elegir el destino puede
+	// tardar lo que tarde, y mientras tanto se puede cambiar de mensaje con un
+	// clic o con la tecla `j`. Leer `props.abierto` después pediría el número de
+	// parte de este adjunto con la identidad del mensaje nuevo: se bajaría otro
+	// archivo y se escribiría en el destino que se acaba de elegir.
+	const de = {
+		accountId: props.abierto.account_id,
+		casilla: props.abierto.casilla,
+		uid: props.abierto.uid,
+	};
+
 	let destino: string | null;
 	try {
 		destino = await guardarDialogo({ defaultPath: adjunto.nombre });
@@ -101,12 +118,12 @@ async function guardar(adjunto: Adjunto) {
 		return;
 	}
 
-	guardando.value = adjunto.parte;
+	// Sobre una copia: Vue no ve una mutación de un `Set` en su lugar, y los
+	// botones no se enterarían de que hay algo en curso.
+	guardando.value = new Set(guardando.value).add(adjunto.parte);
 	try {
 		const recortado = await invoke<boolean>('guardar_adjunto', {
-			accountId: props.abierto.account_id,
-			casilla: props.abierto.casilla,
-			uid: props.abierto.uid,
+			...de,
 			parte: adjunto.parte,
 			destino,
 		});
@@ -118,7 +135,9 @@ async function guardar(adjunto: Adjunto) {
 	} catch (e) {
 		avisoGuardar.value = String(e);
 	} finally {
-		guardando.value = '';
+		const quedan = new Set(guardando.value);
+		quedan.delete(adjunto.parte);
+		guardando.value = quedan;
 	}
 }
 
@@ -230,9 +249,9 @@ const cuando = computed(() => {
               <button
                 type="button"
                 class="shrink-0 rounded-corner border border-ui-border px-1.5 hover:bg-ui-surface disabled:opacity-50"
-                :disabled="guardando === a.parte"
+                :disabled="guardando.has(a.parte)"
                 @click="guardar(a)">
-                {{ guardando === a.parte ? t('mensaje.guardando') : t('mensaje.guardar') }}
+                {{ guardando.has(a.parte) ? t('mensaje.guardando') : t('mensaje.guardar') }}
               </button>
             </li>
           </ul>
