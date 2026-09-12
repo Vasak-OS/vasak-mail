@@ -69,6 +69,41 @@ pub fn mostrar_aunque_el_frontend_falle<R: Runtime>(app: AppHandle<R>) {
     });
 }
 
+/// Trae al frente la ventana que ya existe.
+///
+/// La llama el plugin de instancia única cuando alguien abre la aplicación por
+/// segunda vez: en vez de un programa más con su propia ventana, se levanta el
+/// que ya estaba. Es lo que hace que el botón «Abrir» del cartel de correo nuevo
+/// sirva — sin esto, cada aviso dejaría una ventana más en el escritorio.
+///
+/// Los tres pasos hacen falta y no son el mismo: una ventana puede estar
+/// **oculta** (nace así, ver arriba), **minimizada**, o simplemente detrás. Con
+/// `show()` solo, una minimizada sigue minimizada.
+///
+/// `set_focus` puede no hacer nada, y eso es correcto: en Wayland el compositor
+/// decide quién se lleva el foco, y varios lo niegan a una aplicación que no
+/// está interactuando con la persona. Lo que sí pasa siempre es que la ventana
+/// aparece; llamar la atención es cosa del compositor.
+pub fn traer_al_frente<R: Runtime>(app: &AppHandle<R>) {
+    let Some(ventana) = app.get_webview_window(VENTANA) else {
+        // No hay ventana que traer. Pasa si se cerró; no hay nada que hacer, y
+        // desde luego no abrir una nueva sin que nadie la haya pedido.
+        return;
+    };
+
+    // Cada uno por separado, y ninguno frena al siguiente: que no se pueda
+    // desminimizar no es motivo para no intentar mostrarla.
+    if let Err(error) = ventana.unminimize() {
+        eprintln!("[ventana] no se pudo desminimizar: {error}");
+    }
+    if let Err(error) = ventana.show() {
+        eprintln!("[ventana] no se pudo mostrar: {error}");
+    }
+    if let Err(error) = ventana.set_focus() {
+        eprintln!("[ventana] no se pudo enfocar: {error}");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! El arreglo son tres piezas en tres archivos distintos y ninguna sirve
@@ -81,6 +116,62 @@ mod tests {
 
     fn json(texto: &str) -> Value {
         serde_json::from_str(texto).expect("el archivo tiene que ser JSON válido")
+    }
+
+    /// Lo que hace que «Abrir» del cartel de correo nuevo no deje una ventana
+    /// más cada vez.
+    ///
+    /// Son dos piezas en dos archivos que no se conocen: el plugin registrado en
+    /// `lib.rs` y la entrada del menú que lo lanza. Si se cae cualquiera, no
+    /// falla nada al compilar.
+    #[test]
+    fn la_aplicacion_es_de_una_sola_ventana() {
+        let lib = include_str!("lib.rs");
+        assert!(
+            lib.contains("tauri_plugin_single_instance::init"),
+            "sin el plugin, abrir dos veces deja dos ventanas"
+        );
+        assert!(
+            lib.contains("ventana::traer_al_frente"),
+            "el plugin sin la llamada no levanta la ventana que ya estaba"
+        );
+    }
+
+    /// La entrada del menú tiene que lanzar el binario que el paquete instala.
+    ///
+    /// El `Exec` es texto suelto: si alguien renombra el programa, esto sigue
+    /// diciendo el nombre viejo, compila igual, y lo que se rompe es el lanzador
+    /// del menú y el botón del cartel de correo nuevo.
+    #[test]
+    fn la_entrada_del_menu_lanza_el_binario_de_verdad() {
+        let entrada = include_str!("../packaging/vasak-mail.desktop");
+        let conf = json(include_str!("../tauri.conf.json"));
+
+        let binario = conf["productName"].as_str().expect("tiene productName");
+        assert!(
+            entrada.contains(&format!("\nExec={binario}\n")),
+            "el Exec de la entrada no es «{binario}»"
+        );
+
+        // Y el `StartupWMClass` tiene que ser el identificador, o el escritorio
+        // no puede unir la entrada con la ventana abierta: el lanzador muestra
+        // la aplicación como si no estuviera corriendo aunque lo esté.
+        let identificador = conf["identifier"].as_str().expect("tiene identifier");
+        assert!(
+            entrada.contains(&format!("\nStartupWMClass={identificador}\n")),
+            "el StartupWMClass de la entrada no es «{identificador}»"
+        );
+    }
+
+    /// Lo mínimo que el estándar exige, para que el archivo no se descarte
+    /// entero en silencio.
+    #[test]
+    fn la_entrada_del_menu_esta_completa() {
+        let entrada = include_str!("../packaging/vasak-mail.desktop");
+        assert!(entrada.starts_with("[Desktop Entry]\n"));
+        for clave in ["Type=Application", "Name=", "Icon=", "Categories="] {
+            assert!(entrada.contains(clave), "falta «{clave}» en la entrada del menú");
+        }
     }
 
     #[test]

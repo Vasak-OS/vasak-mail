@@ -27,6 +27,20 @@ pub fn run() {
         // arranca otro plugin es de los más probables y de los que menos rastro
         // dejan — sin esto, sólo queda un volcado de núcleo sin símbolos.
         .plugin(tauri_plugin_vsk_journal::init())
+        // **Una sola ventana de correo, siempre.** Abrir la aplicación estando
+        // ya abierta levanta la que hay en vez de dejar otra al lado.
+        //
+        // No es cosmético: el cartel de correo nuevo que muestra
+        // `vasak-accounts-sync` tiene un botón «Abrir», y sin esto cada aviso
+        // atendido dejaría una ventana más en el escritorio.
+        //
+        // Va **después** del diario y no primero, que es lo que recomienda el
+        // plugin: lo único que hace una segunda instancia antes de morirse es
+        // instalar el gancho de pánico, y a cambio se conserva la garantía de
+        // que un pánico durante el arranque deja rastro.
+        .plugin(tauri_plugin_single_instance::init(|app, _argumentos, _directorio| {
+            ventana::traer_al_frente(app);
+        }))
         .plugin(tauri_plugin_vsk_contextual_menu::init())
         .plugin(tauri_plugin_config_manager::init())
         .plugin(tauri_plugin_vicons::init())
