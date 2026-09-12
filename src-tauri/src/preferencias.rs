@@ -114,7 +114,14 @@ mod tests {
         // del proceso haría que el resultado dependa de dónde corra la prueba.
         let absoluta = PathBuf::from("/casa/config");
         assert!(absoluta.is_absolute());
-        assert_eq!(absoluta.join("vasak-mail").join(ARCHIVO).file_name().unwrap(), ARCHIVO);
+        assert_eq!(
+            absoluta
+                .join("vasak-mail")
+                .join(ARCHIVO)
+                .file_name()
+                .unwrap(),
+            ARCHIVO
+        );
     }
 
     /// Una ruta relativa en la variable no dice nada, y por eso se descarta.
