@@ -218,6 +218,48 @@ pub struct AdjuntoParaMandar {
     pub bytes: u64,
 }
 
+/// Lo que devuelve el servicio al pedir un adjunto.
+#[derive(Debug, Clone, Deserialize)]
+struct AdjuntoBajado {
+    /// El contenido, en base64.
+    contenido: String,
+    /// Si el servidor mandó justo el tope: puede faltar el final.
+    #[serde(default)]
+    recortado: bool,
+}
+
+/// Baja un adjunto y lo escribe donde la persona haya elegido.
+///
+/// **Escribe esta aplicación y no el servicio.** El servicio corre como la
+/// persona y podría escribir en cualquier archivo suyo; pasarle una ruta sería
+/// dejar que la ventana elija dónde escribe. La regla es la misma que para
+/// mandar, al revés: el proceso que toca el disco es aquel cuyo dueño eligió la
+/// ruta.
+///
+/// Devuelve si el archivo puede estar cortado, para que la ventana lo diga.
+/// Guardar un archivo incompleto sin avisar deja algo que no abre ningún
+/// programa y ninguna explicación de por qué.
+pub async fn guardar_adjunto(
+    account_id: &str,
+    casilla: &str,
+    uid: u32,
+    parte: &str,
+    destino: &str,
+) -> Result<bool, String> {
+    use base64::Engine;
+
+    let json = llamar("GetAttachment", &(account_id, casilla, uid, parte)).await?;
+    let bajado: AdjuntoBajado =
+        serde_json::from_str(&json).map_err(|e| format!("no se pudo leer el adjunto: {e}"))?;
+
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(bajado.contenido.as_bytes())
+        .map_err(|e| format!("el adjunto llegó mal: {e}"))?;
+
+    std::fs::write(destino, &bytes).map_err(|e| format!("no se pudo guardar: {e}"))?;
+    Ok(bajado.recortado)
+}
+
 /// Lee un archivo para adjuntarlo.
 ///
 /// **Lo lee esta aplicación y no el servicio.** El servicio corre como la

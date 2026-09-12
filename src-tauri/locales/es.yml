@@ -74,6 +74,10 @@ lista:
   conAdjuntos: Trae un archivo
   noLeido: Sin leer
 mensaje:
+  guardar: Guardar
+  guardando: Guardando…
+  guardadoEn: "Guardado en {0}"
+  guardadoCortado: "Se guardó, pero el archivo era más grande de lo que se baja y puede estar incompleto."
   cuerpo: "Cuerpo del mensaje"
   verTextoPelado: "Ver sin formato"
   verConFormato: "Ver con formato"
