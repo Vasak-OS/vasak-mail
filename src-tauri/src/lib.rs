@@ -38,9 +38,11 @@ pub fn run() {
         // plugin: lo único que hace una segunda instancia antes de morirse es
         // instalar el gancho de pánico, y a cambio se conserva la garantía de
         // que un pánico durante el arranque deja rastro.
-        .plugin(tauri_plugin_single_instance::init(|app, _argumentos, _directorio| {
-            ventana::traer_al_frente(app);
-        }))
+        .plugin(tauri_plugin_single_instance::init(
+            |app, _argumentos, _directorio| {
+                ventana::traer_al_frente(app);
+            },
+        ))
         .plugin(tauri_plugin_vsk_contextual_menu::init())
         .plugin(tauri_plugin_config_manager::init())
         .plugin(tauri_plugin_vicons::init())

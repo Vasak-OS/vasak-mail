@@ -170,7 +170,10 @@ mod tests {
         let entrada = include_str!("../packaging/vasak-mail.desktop");
         assert!(entrada.starts_with("[Desktop Entry]\n"));
         for clave in ["Type=Application", "Name=", "Icon=", "Categories="] {
-            assert!(entrada.contains(clave), "falta «{clave}» en la entrada del menú");
+            assert!(
+                entrada.contains(clave),
+                "falta «{clave}» en la entrada del menú"
+            );
         }
     }
 
