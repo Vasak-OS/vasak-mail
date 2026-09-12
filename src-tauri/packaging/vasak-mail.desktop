@@ -1,0 +1,25 @@
+[Desktop Entry]
+Type=Application
+Name=Correo
+Name[en]=Mail
+GenericName=Email client
+GenericName[es]=Cliente de correo
+Comment=Read and write your email
+Comment[es]=Leé y escribí tu correo
+# El nombre del binario tal cual lo instala el paquete. Hay una prueba que ata
+# esto al `productName` de `tauri.conf.json`: si alguien renombra el programa y
+# se olvida de acá, el lanzador del menú deja de abrir nada y no falla nada al
+# compilar.
+Exec=vasak-mail
+# Por nombre y no por ruta: lo resuelve el tema de iconos, así que sigue al
+# escritorio. Es el mismo que usa la ventana en su barra y el que pone
+# `vasak-accounts-sync` en el cartel de correo nuevo.
+Icon=internet-mail
+Terminal=false
+Categories=Network;Email;
+Keywords=email;mail;correo;mensajes;
+# Lo que hace que el escritorio pueda unir esta entrada con la ventana abierta:
+# tiene que ser el `identifier` de `tauri.conf.json`. Sin esto, el lanzador
+# muestra la aplicación como si no estuviera corriendo aunque lo esté.
+StartupWMClass=ar.net.vasak.vasak-mail
+StartupNotify=true

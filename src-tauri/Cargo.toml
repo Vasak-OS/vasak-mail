@@ -29,6 +29,11 @@ tauri-plugin-config-manager = "2"
 tauri-plugin-i18n-vsk = "2.1.1"
 tauri-plugin-vsk-contextual-menu = "2"
 tauri-plugin-shell = "2"
+# Una sola ventana de correo: abrir la aplicación estando ya abierta levanta la
+# que hay. Ver el comentario en `lib.rs`. Es Rust puro —habla por el bus de
+# sesión, al que ya estamos conectados— así que no agrega ninguna biblioteca
+# compartida al paquete.
+tauri-plugin-single-instance = "2"
 
 # Para la ventana sin decoración: la barra propia necesita mover y redimensionar.
 gtk = "0.18"
