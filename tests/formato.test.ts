@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { type Colores, documentoDe, POLITICA } from '../src/tools/formato';
+import {
+	type Colores,
+	conLasImagenes,
+	documentoDe,
+	POLITICA,
+	POLITICA_CON_IMAGENES,
+} from '../src/tools/formato';
 
 const COLORES: Colores = {
 	fondo: '#111',
@@ -64,5 +70,86 @@ describe('documentoDe', () => {
 	test('un mensaje vacío sigue siendo un documento válido', () => {
 		const documento = documentoDe('', COLORES);
 		expect(documento).toContain('<body></body>');
+	});
+});
+
+describe('POLITICA_CON_IMAGENES', () => {
+	test('deja ver imágenes pero no abre la red', () => {
+		// **La diferencia que importa.** Con `img-src https:` el documento podría
+		// pedir cualquier cosa, que es exactamente lo que este trabajo evita. Lo
+		// que se muestra ya vino traído por el servicio y viaja adentro del
+		// documento.
+		expect(POLITICA_CON_IMAGENES).toContain('img-src data:');
+		expect(POLITICA_CON_IMAGENES).not.toContain('https:');
+		expect(POLITICA_CON_IMAGENES).not.toContain('http:');
+		expect(POLITICA_CON_IMAGENES).toContain("default-src 'none'");
+	});
+
+	test('el documento usa una u otra según lo que se pidió', () => {
+		expect(documentoDe('<p>x</p>', COLORES, false)).toContain(POLITICA);
+		expect(documentoDe('<p>x</p>', COLORES, true)).toContain(POLITICA_CON_IMAGENES);
+	});
+
+	test('sin pedirlo, la política es la cerrada', () => {
+		// El valor por omisión importa: una imagen que se carga sin que nadie la
+		// haya pedido es el aviso al remitente que todo esto evita.
+		expect(documentoDe('<p>x</p>', COLORES)).toContain(POLITICA);
+	});
+});
+
+describe('conLasImagenes', () => {
+	const PIXEL = 'data:image/png;base64,iVBORw0KGgo=';
+
+	test('le devuelve el src a las que se trajeron, con el contenido adentro', () => {
+		// Con el contenido y **no con la dirección**: el documento sigue sin
+		// poder salir a la red, y lo que se ve es lo que el servicio ya trajo.
+		const fragmento = '<img data-vsk-src="https://ejemplo.com/p.png" alt="">';
+		const salida = conLasImagenes(fragmento, new Map([['https://ejemplo.com/p.png', PIXEL]]));
+
+		expect(salida).toContain(`src="${PIXEL}"`);
+		expect(salida).not.toContain('src="https://ejemplo.com/p.png"');
+	});
+
+	test('lo que no se pudo traer se queda como estaba', () => {
+		// Sin `src`, o sea mostrando su texto alternativo, que es lo que ya hacía.
+		const fragmento = '<img data-vsk-src="https://ejemplo.com/rota.png" alt="un gato">';
+		const salida = conLasImagenes(fragmento, new Map());
+
+		expect(salida).toBe(fragmento);
+		expect(salida).not.toContain(' src=');
+	});
+
+	test('con varias, cada una la suya', () => {
+		const fragmento =
+			'<img data-vsk-src="https://a.com/1.png"><img data-vsk-src="https://b.com/2.png">';
+		const otro = 'data:image/gif;base64,R0lGOD';
+		const salida = conLasImagenes(
+			fragmento,
+			new Map([
+				['https://a.com/1.png', PIXEL],
+				['https://b.com/2.png', otro],
+			])
+		);
+
+		expect(salida).toContain(`src="${PIXEL}"`);
+		expect(salida).toContain(`src="${otro}"`);
+	});
+
+	test('una dirección con & escapado se encuentra igual', () => {
+		// El saneador escapa al guardar la dirección; acá hay que deshacerlo o la
+		// imagen nunca coincide con la que se trajo. Pasa con cualquier dirección
+		// que lleve parámetros, que son casi todas las de seguimiento.
+		const fragmento = '<img data-vsk-src="https://ejemplo.com/p.png?a=1&amp;b=2">';
+        const salida = conLasImagenes(
+			fragmento,
+			new Map([['https://ejemplo.com/p.png?a=1&b=2', PIXEL]])
+		);
+
+		expect(salida).toContain(`src="${PIXEL}"`);
+	});
+
+	test('un fragmento sin imágenes no se toca', () => {
+		const fragmento = '<p>hola</p>';
+		expect(conLasImagenes(fragmento, new Map())).toBe(fragmento);
 	});
 });

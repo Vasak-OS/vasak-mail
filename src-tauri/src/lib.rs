@@ -53,6 +53,7 @@ pub fn run() {
             comandos::listar_casillas,
             comandos::listar_mensajes,
             comandos::buscar_mensajes,
+            comandos::traer_imagen,
             comandos::abrir_mensaje,
             comandos::marcar_leido,
             comandos::enviar_mensaje,

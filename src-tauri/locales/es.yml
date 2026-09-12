@@ -78,6 +78,9 @@ mensaje:
   guardando: Guardando…
   guardadoEn: "Guardado en {0}"
   guardadoCortado: "Se guardó, pero el archivo era más grande de lo que se baja y puede estar incompleto."
+  mostrarImagenes: "Mostrar"
+  trayendoImagenes: "Trayendo…"
+  imagenesQueFallaron: "No se pudieron traer {0} imagen(es)."
   cuerpo: "Cuerpo del mensaje"
   verTextoPelado: "Ver sin formato"
   verConFormato: "Ver con formato"
