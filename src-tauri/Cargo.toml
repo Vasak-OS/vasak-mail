@@ -1,6 +1,6 @@
 [package]
 name = "vasak-mail"
-version = "0.8.0"
+version = "0.9.0"
 description = "El correo de VasakOS"
 authors = ["Vasak Group", "Joaquin (Pato) Decima"]
 edition = "2021"
@@ -29,6 +29,13 @@ tauri-plugin-config-manager = "2"
 tauri-plugin-i18n-vsk = "2.1.1"
 tauri-plugin-vsk-contextual-menu = "2"
 tauri-plugin-shell = "2"
+# El diálogo para elegir un archivo que adjuntar. Es Rust puro y habla con el
+# portal de XDG por D-Bus, que ya es dependencia: no suma ninguna biblioteca
+# compartida al paquete. Es el mismo plugin que usa `vasak-text`, cuyo PKGBUILD
+# no declara nada extra por esto.
+tauri-plugin-dialog = "2"
+# Para codificar el contenido de un adjunto. Es Rust puro.
+base64 = "0.22"
 # Una sola ventana de correo: abrir la aplicación estando ya abierta levanta la
 # que hay. Ver el comentario en `lib.rs`. Es Rust puro —habla por el bus de
 # sesión, al que ya estamos conectados— así que no agrega ninguna biblioteca

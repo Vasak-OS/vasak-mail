@@ -101,6 +101,7 @@ const VACIO: Borrador = {
 	cuerpo: '',
 	en_respuesta_a: '',
 	referencias: [],
+	adjuntos: [],
 };
 
 function escribir() {

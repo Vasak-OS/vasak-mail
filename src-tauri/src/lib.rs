@@ -47,6 +47,7 @@ pub fn run() {
         .plugin(tauri_plugin_config_manager::init())
         .plugin(tauri_plugin_vicons::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             comandos::listar_cuentas,
             comandos::listar_casillas,
@@ -55,6 +56,7 @@ pub fn run() {
             comandos::abrir_mensaje,
             comandos::marcar_leido,
             comandos::enviar_mensaje,
+            comandos::leer_adjunto,
             comandos::listar_salientes,
             comandos::descartar_saliente,
         ])
