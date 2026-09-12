@@ -97,6 +97,10 @@ mensaje:
   adjuntos: "Este mensaje trae archivos adjuntos. Esta versión los nombra, y todavía no los abre:"
   soloTexto: Se muestra el texto del mensaje. El formato y las imágenes no se cargan.
 preferencias:
+  deshacer: "Tiempo para arrepentirse de un envío"
+  deshacerPorQue: "Lo que tarda en salir un mensaje después de apretar «Enviar». En ese rato lo podés cancelar."
+  segundos: "{0} s"
+  sinEspera: "Sin espera"
   titulo: Preferencias
   cerrar: Cerrar
   cartel: El cartel de correo nuevo

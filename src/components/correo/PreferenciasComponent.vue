@@ -3,6 +3,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import { onMounted, ref } from 'vue';
 import { guardarPreferencia, usePreferencias } from '@/composables/use-preferencias';
+import { MAX_SEGUNDOS_PARA_DESHACER } from '@/tools/deshacer';
+import { interpolar } from '@/tools/interpolar';
 
 defineProps<{ abierto: boolean }>();
 const emit = defineEmits<{ cerrar: [] }>();
@@ -23,7 +25,7 @@ const error = ref('');
 
 // Éstas las tiene el composable, que es quien las usa: leerlas de nuevo acá
 // dejaría dos copias y la de la ventana no se enteraría al cambiarlas.
-const { vistaPorOmision, juegoDeAtajos } = usePreferencias();
+const { vistaPorOmision, juegoDeAtajos, segundosParaDeshacer } = usePreferencias();
 
 onMounted(async () => {
 	try {
@@ -40,7 +42,7 @@ onMounted(async () => {
 });
 
 /** Guarda una de las de la ventana y la deja valiendo en el acto. */
-async function elegirDeLaVentana(clave: string, valor: string) {
+async function elegirDeLaVentana(clave: string, valor: string | number) {
 	error.value = '';
 	try {
 		await guardarPreferencia(clave, valor);
@@ -138,6 +140,34 @@ async function elegir(valor: string) {
             @change="elegirDeLaVentana('juego_de_atajos', j)" />
           {{ t(`preferencias.atajos_${j}`) }}
         </label>
+      </fieldset>
+
+      <fieldset class="mt-4 flex flex-col gap-1 border-ui-border border-t pt-3">
+        <legend class="mb-1 font-medium text-sm">{{ t('preferencias.deshacer') }}</legend>
+        <p class="mb-2 text-tx-muted text-xs">{{ t('preferencias.deshacerPorQue') }}</p>
+        <span class="flex items-center gap-2">
+          <input
+            type="range"
+            min="0"
+            :max="MAX_SEGUNDOS_PARA_DESHACER"
+            step="5"
+            class="min-w-0 flex-1"
+            :value="segundosParaDeshacer"
+            :aria-label="t('preferencias.deshacer')"
+            @change="
+              elegirDeLaVentana(
+                'segundos_para_deshacer',
+                Number(($event.target as HTMLInputElement).value)
+              )
+            " />
+          <span class="w-20 shrink-0 text-right text-sm tabular-nums">
+            {{
+              segundosParaDeshacer === 0
+                ? t('preferencias.sinEspera')
+                : interpolar(t('preferencias.segundos'), segundosParaDeshacer)
+            }}
+          </span>
+        </span>
       </fieldset>
       <p v-if="error" class="mt-2 text-status-warning text-xs" role="status">{{ error }}</p>
     </div>

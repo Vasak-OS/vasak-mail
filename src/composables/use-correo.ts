@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { computed, ref } from 'vue';
+import { usePreferencias } from '@/composables/use-preferencias';
 import { claveDe, combinados, esElMismo, TODAS } from '@/tools/bandeja';
 import { alcance, filtrados } from '@/tools/busqueda';
 import { noAntesDe, quedan } from '@/tools/deshacer';
@@ -142,6 +143,7 @@ export interface Saliente {
  * ventana no ve una contraseña ni abre una conexión propia; ver `correo.rs`.
  */
 export function useCorreo() {
+	const { segundosParaDeshacer } = usePreferencias();
 	const cuentas = ref<Cuenta[]>([]);
 	/**
 	 * Qué se está mirando: una cuenta, o [`TODAS`] si es la bandeja combinada.
@@ -584,7 +586,10 @@ export function useCorreo() {
 		error.value = '';
 		try {
 			const programado = cuando !== '';
-			const hasta = programado ? cuando : noAntesDe(new Date());
+			// La ventana para arrepentirse sale de las preferencias. Es de este
+			// lado y no del servicio: el servicio recibe una hora, y quien la
+			// calcula es quien dibuja la cuenta regresiva.
+			const hasta = programado ? cuando : noAntesDe(new Date(), segundosParaDeshacer.value);
 			const id = await invoke<string>('enviar_mensaje', {
 				accountId,
 				borrador,

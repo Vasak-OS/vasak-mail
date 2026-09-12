@@ -84,6 +84,10 @@ mensaje:
   adjuntos: "This message has attachments. This version names them, and does not open them yet:"
   soloTexto: The message text is shown. Formatting and images are not loaded.
 preferencias:
+  deshacer: "Time to undo a send"
+  deshacerPorQue: "How long a message waits after you hit Send. You can cancel it in that time."
+  segundos: "{0} s"
+  sinEspera: "No wait"
   titulo: Preferences
   cerrar: Close
   cartel: The new-mail card
