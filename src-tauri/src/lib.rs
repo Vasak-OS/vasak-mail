@@ -6,6 +6,7 @@
 mod comandos;
 mod correo;
 mod locales;
+mod preferencias;
 mod ventana;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -59,6 +60,8 @@ pub fn run() {
             comandos::enviar_mensaje,
             comandos::leer_adjunto,
             comandos::guardar_adjunto,
+            comandos::leer_preferencias,
+            comandos::poner_preferencia,
             comandos::listar_salientes,
             comandos::descartar_saliente,
         ])

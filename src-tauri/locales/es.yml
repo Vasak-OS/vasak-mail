@@ -96,6 +96,21 @@ mensaje:
   # pierde el archivo.
   adjuntos: "Este mensaje trae archivos adjuntos. Esta versión los nombra, y todavía no los abre:"
   soloTexto: Se muestra el texto del mensaje. El formato y las imágenes no se cargan.
+preferencias:
+  titulo: Preferencias
+  cerrar: Cerrar
+  cartel: El cartel de correo nuevo
+  cartelPorQue: >-
+    La pantalla puede estar bloqueada, compartida o proyectada. Quién te escribe
+    es un dato tan personal como lo que te escribió, así que por omisión el
+    cartel no nombra a nadie.
+  cuenta: Sólo cuántos llegaron y a qué cuenta
+  remitente: También quién lo mandó
+  remitente_y_asunto: También de qué se trata
+  conVarios: >-
+    Con más de un mensaje el cartel no nombra a ninguno: diría el de uno y
+    callaría los otros.
+
 redactar:
   nuevo: Escribir
   responder: Responder

@@ -83,6 +83,20 @@ mensaje:
   recortado: There is more to this message. This version only fetches the beginning.
   adjuntos: "This message has attachments. This version names them, and does not open them yet:"
   soloTexto: The message text is shown. Formatting and images are not loaded.
+preferencias:
+  titulo: Preferences
+  cerrar: Close
+  cartel: The new-mail card
+  cartelPorQue: >-
+    The screen can be locked, shared or projected. Who writes to you is as
+    personal as what they wrote, so by default the card names nobody.
+  cuenta: Only how many arrived and to which account
+  remitente: Also who sent it
+  remitente_y_asunto: Also what it is about
+  conVarios: >-
+    With more than one message the card names none of them: it would say one
+    and stay quiet about the rest.
+
 redactar:
   nuevo: Write
   responder: Reply

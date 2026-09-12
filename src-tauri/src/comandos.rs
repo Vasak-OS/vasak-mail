@@ -87,6 +87,18 @@ pub async fn guardar_adjunto(
     correo::guardar_adjunto(&account_id, &casilla, uid, &parte, &destino).await
 }
 
+/// Lo que hay guardado, como JSON.
+#[tauri::command]
+pub fn leer_preferencias() -> String {
+    crate::preferencias::leer()
+}
+
+/// Guarda una preferencia, conservando las demás.
+#[tauri::command]
+pub fn poner_preferencia(clave: String, valor: serde_json::Value) -> Result<(), String> {
+    crate::preferencias::poner(&clave, valor)
+}
+
 /// Lee un archivo para adjuntarlo, desde una ruta que eligió la persona.
 #[tauri::command]
 pub async fn leer_adjunto(ruta: String) -> Result<AdjuntoParaMandar, String> {
