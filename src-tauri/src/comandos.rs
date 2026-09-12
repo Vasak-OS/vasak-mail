@@ -24,6 +24,15 @@ pub async fn listar_mensajes(account_id: String, casilla: String) -> Result<Vec<
     correo::mensajes(&account_id, &casilla).await
 }
 
+/// Trae una imagen de un mensaje, cuando la persona la pidió.
+///
+/// No se llama solo nunca: existe porque alguien apretó un botón. Ver
+/// `correo::imagen`.
+#[tauri::command]
+pub async fn traer_imagen(url: String) -> Result<correo::Imagen, String> {
+    correo::imagen(&url).await
+}
+
 /// Busca en una casilla, preguntándole al servidor.
 ///
 /// El filtro instantáneo sobre lo que ya está en la ventana no pasa por acá:

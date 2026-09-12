@@ -33,6 +33,35 @@
  * rectángulo blanco en una ventana oscura.
  */
 
+/**
+ * Pone las imágenes que se trajeron en el documento.
+ *
+ * El saneador del servicio dejó la dirección en `data-vsk-src` y sacó el `src`,
+ * así que un mensaje sin esto no pide nada. Acá se le devuelve el `src`, pero
+ * **con el contenido adentro** —un `data:`— y no con la dirección: el documento
+ * sigue sin poder salir a la red, y lo que se ve es lo que el servicio ya trajo.
+ *
+ * Lo que no se pudo traer se queda sin `src` y muestra su texto alternativo, que
+ * es lo que ya hacía.
+ */
+export function conLasImagenes(fragmento: string, traidas: Map<string, string>): string {
+	// Sobre el texto y no sobre el árbol, a propósito: lo que sale de acá entra
+	// en un documento aislado y sin permisos, así que lo peor que produce un
+	// error de este reemplazo es una imagen que no se ve.
+	return fragmento.replace(
+		/<img\b([^>]*?)\bdata-vsk-src="([^"]*)"/gi,
+		(entera, antes: string, direccion: string) => {
+			const dato = traidas.get(desescapar(direccion));
+			return dato ? `<img${antes}src="${dato}"` : entera;
+		}
+	);
+}
+
+/** Deshace lo que el saneador escapó al guardar la dirección. */
+function desescapar(direccion: string): string {
+	return direccion.replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+}
+
 /** Los colores del tema que se le pasan al mensaje. */
 export interface Colores {
 	fondo: string;
@@ -59,17 +88,30 @@ export interface Saneado {
 export const POLITICA = "default-src 'none'; style-src 'unsafe-inline'";
 
 /**
+ * La política cuando la persona pidió ver las imágenes.
+ *
+ * `img-src data:` y nada más: las imágenes que se muestran ya vienen traídas por
+ * el servicio y van adentro del documento como `data:`. **No se abre la red**, y
+ * ésa es la diferencia que importa — con `img-src https:` el documento podría
+ * pedir cualquier cosa, que es exactamente lo que este trabajo evita.
+ *
+ * Un `data:` no puede ejecutar nada en un `<img>`: el servicio además rechaza el
+ * SVG, que es el único formato de imagen que es en realidad un documento.
+ */
+export const POLITICA_CON_IMAGENES = "default-src 'none'; style-src 'unsafe-inline'; img-src data:";
+
+/**
  * Arma el documento completo que va adentro del contenedor.
  *
  * El fragmento entra **sin escapar**, que es el punto: ya viene saneado del
  * servicio y lo que se quiere es dibujarlo. Lo que lo hace seguro no es escapar
  * acá, es la política de arriba más el contenedor sin permisos.
  */
-export function documentoDe(fragmento: string, colores: Colores): string {
+export function documentoDe(fragmento: string, colores: Colores, conImagenes = false): string {
 	return `<!doctype html>
 <html><head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="${POLITICA}">
+<meta http-equiv="Content-Security-Policy" content="${conImagenes ? POLITICA_CON_IMAGENES : POLITICA}">
 <style>
   html { color-scheme: only light dark; }
   body {
