@@ -84,6 +84,11 @@ redactar:
   citado: "On {0}, {1} wrote:"
   seEncola: The message is saved and goes out as soon as it can. You can close this window.
   descartarBorrador: Discard what you wrote?
+deshacer:
+  # `{0}` is the seconds left.
+  enCamino: "Message on its way… {0}s"
+  boton: Undo
+
 salida:
   titulo: Not sent
   esperandoOne: "{0} waiting to go out"
@@ -91,6 +96,7 @@ salida:
   trabado: Could not be sent
   reintentandoOne: "{0} attempt"
   reintentandoOther: "{0} attempts"
+  esperandoSuHora: Waiting for the time you asked for
   descartar: Discard
   confirmarDescartar: What you wrote will be lost. Discard it anyway?
   sinAsunto: (no subject)

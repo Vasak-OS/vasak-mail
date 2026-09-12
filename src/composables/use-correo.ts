@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { computed, ref } from 'vue';
 import { claveDe, combinados, esElMismo, TODAS } from '@/tools/bandeja';
 import { alcance, filtrados } from '@/tools/busqueda';
+import { noAntesDe, quedan } from '@/tools/deshacer';
 
 /**
  * La carpeta de entrada, que es la única que tienen todas las cuentas con el
@@ -105,6 +106,8 @@ export interface Saliente {
 	/** `pendiente` o `trabado`. */
 	estado: string;
 	ultimo_error: string;
+	/** Si está esperando la hora que se le pidió, en vez de estar saliendo. */
+	esperando_su_hora: boolean;
 }
 
 /**
@@ -526,6 +529,15 @@ export function useCorreo() {
 	 * que el servidor lo haya aceptado. Por eso la ventana se puede cerrar
 	 * enseguida sin perder nada.
 	 */
+	/**
+	 * Lo último que se mandó, mientras se pueda deshacer.
+	 *
+	 * Guarda el borrador y no sólo el identificador: deshacer tiene que
+	 * **devolver lo escrito**, no sólo sacarlo de la cola. Sacarlo y perder el
+	 * texto no es deshacer, es borrar.
+	 */
+	const enCamino = ref<{ id: string; borrador: Borrador; hasta: string } | null>(null);
+
 	async function enviar(accountId: string, borrador: Borrador): Promise<boolean> {
 		// **La cuenta viene por argumento y no de `elegida`.** Entre abrir la
 		// ventana de redacción y apretar «Enviar» se puede cambiar de casilla, y
@@ -540,7 +552,13 @@ export function useCorreo() {
 		enviando.value = true;
 		error.value = '';
 		try {
-			await invoke<string>('enviar_mensaje', { accountId, borrador });
+			const hasta = noAntesDe(new Date());
+			const id = await invoke<string>('enviar_mensaje', {
+				accountId,
+				borrador,
+				noAntesDe: hasta,
+			});
+			enCamino.value = { id, borrador, hasta };
 			await cargarSalida();
 			return true;
 		} catch (e) {
@@ -552,6 +570,41 @@ export function useCorreo() {
 		} finally {
 			enviando.value = false;
 		}
+	}
+
+	/**
+	 * Deshace el último envío: lo saca de la cola y devuelve lo escrito.
+	 *
+	 * Devuelve el borrador para que la ventana lo vuelva a abrir. Si ya salió
+	 * —la cuenta regresiva llegó a cero, o el equipo tardó— devuelve `null` y
+	 * quien llama no tiene nada que ofrecer: prometer deshacer algo que ya se
+	 * mandó es peor que no ofrecerlo.
+	 */
+	async function deshacerEnvio(): Promise<Borrador | null> {
+		const pendiente = enCamino.value;
+		if (!pendiente || quedan(pendiente.hasta, new Date()) === 0) {
+			enCamino.value = null;
+			return null;
+		}
+
+		try {
+			await invoke('descartar_saliente', { id: pendiente.id });
+			enCamino.value = null;
+			await cargarSalida();
+			return pendiente.borrador;
+		} catch (e) {
+			// Si no se pudo sacar de la cola, es porque ya salió o porque el
+			// servicio no contesta. En los dos casos lo que **no** hay que hacer
+			// es devolver el borrador: reabrirlo haría creer que no se mandó.
+			error.value = String(e);
+			enCamino.value = null;
+			return null;
+		}
+	}
+
+	/** Deja de ofrecer deshacer, sin tocar el mensaje. */
+	function olvidarEnvio() {
+		enCamino.value = null;
 	}
 
 	/** Saca un mensaje de la cola. Se pierde lo escrito. */
@@ -571,6 +624,9 @@ export function useCorreo() {
 		salientes,
 		enviando,
 		enviar,
+		enCamino,
+		deshacerEnvio,
+		olvidarEnvio,
 		descartarSaliente,
 		cargarSalida,
 		elegida,

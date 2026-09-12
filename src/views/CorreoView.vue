@@ -4,6 +4,7 @@ import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import AtajosComponent from '@/components/correo/AtajosComponent.vue';
 import CuentasComponent from '@/components/correo/CuentasComponent.vue';
+import DeshacerComponent from '@/components/correo/DeshacerComponent.vue';
 import ListaComponent from '@/components/correo/ListaComponent.vue';
 import MensajeComponent from '@/components/correo/MensajeComponent.vue';
 import RedactarComponent from '@/components/correo/RedactarComponent.vue';
@@ -47,6 +48,9 @@ const {
 	cerrar,
 	marcarLeido,
 	enviar,
+	enCamino,
+	deshacerEnvio,
+	olvidarEnvio,
 	descartarSaliente,
 } = useCorreo();
 
@@ -161,6 +165,21 @@ function responderAlAbierto() {
 	// identidad de otra casilla — a alguien que le escribió a la primera.
 	cuentaDelBorrador.value = abierto.value.account_id;
 	esRespuesta.value = true;
+}
+
+/**
+ * Deshacer: saca el mensaje de la cola y **devuelve lo escrito** a la ventana.
+ *
+ * Sacarlo y perder el texto no sería deshacer, sería borrar. Si ya salió, el
+ * composable devuelve `null` y acá no se abre nada: prometer deshacer algo que
+ * ya se mandó es peor que no ofrecerlo.
+ */
+async function volverAAbrirLoQueSeMando() {
+	const borrador = await deshacerEnvio();
+	if (borrador) {
+		redactando.value = borrador;
+		esRespuesta.value = false;
+	}
 }
 
 async function enviarBorrador(borrador: Borrador) {
@@ -377,6 +396,13 @@ onUnmounted(() => {
          aparte: escribir un correo es algo que se hace y se termina. -->
     <div class="relative flex min-h-0 flex-1 flex-col">
       <AtajosComponent :abierto="mostrandoAtajos" @cerrar="mostrandoAtajos = false" />
+
+      <!-- La ventana para arrepentirse. Va sobre todo lo demás porque es lo
+           único con tiempo: si no se ve, no sirve. -->
+      <DeshacerComponent
+        :hasta="enCamino?.hasta ?? null"
+        @deshacer="volverAAbrirLoQueSeMando"
+        @vencio="olvidarEnvio" />
       <!-- Lo que falló va a la vista y no a la consola: una casilla vacía y una
            que no se pudo leer se ven idénticas, y la diferencia importa. -->
       <p

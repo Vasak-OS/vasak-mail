@@ -239,6 +239,12 @@ pub struct Saliente {
     pub estado: String,
     #[serde(default)]
     pub ultimo_error: String,
+    /// Si está esperando la hora que se le pidió, en vez de estar saliendo.
+    ///
+    /// Lo calcula el servicio: la regla —vacío, ilegible, o ya pasó— vive
+    /// **ahí** y no acá, porque en dos lados se separa.
+    #[serde(default)]
+    pub esperando_su_hora: bool,
 }
 
 /// Pone un mensaje en la cola de salida.
@@ -250,10 +256,18 @@ pub struct Saliente {
 /// Lo que sí vuelve en el acto es el rechazo de un borrador que no se puede
 /// armar —una dirección mal escrita—, que es lo que hay que decir mientras la
 /// persona lo tiene en pantalla.
-pub async fn enviar(account_id: &str, borrador: &Borrador) -> Result<String, String> {
+///
+/// `no_antes_de` es una hora en RFC 3339, o vacío para «cuando se pueda». Es lo
+/// que da la ventana para arrepentirse: se encola pidiendo que no salga antes
+/// de dentro de unos segundos, y deshacer es sacarlo de la cola a tiempo.
+pub async fn enviar(
+    account_id: &str,
+    borrador: &Borrador,
+    no_antes_de: &str,
+) -> Result<String, String> {
     let json = serde_json::to_string(borrador)
         .map_err(|e| format!("no se pudo preparar el mensaje: {e}"))?;
-    llamar("SendMessage", &(account_id, json.as_str())).await
+    llamar("SendMessage", &(account_id, json.as_str(), no_antes_de)).await
 }
 
 /// Lo que está esperando salir.

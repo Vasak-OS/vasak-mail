@@ -48,6 +48,18 @@ function intentosDe(saliente: Saliente): string {
             {{ t('salida.descartar') }}
           </button>
         </template>
+        <!-- Esperar su hora y estar saliendo son cosas distintas, y se ven
+             igual si no se dicen: un mensaje programado para el lunes parecería
+             uno que no se puede mandar desde hace tres días. -->
+        <template v-else-if="saliente.esperando_su_hora">
+          <span class="text-tx-muted text-xs">{{ t('salida.esperandoSuHora') }}</span>
+          <button
+            type="button"
+            class="self-start rounded-corner px-1 text-tx-muted text-xs hover:bg-ui-surface"
+            @click="emit('descartar', saliente.id)">
+            {{ t('salida.descartar') }}
+          </button>
+        </template>
         <span v-else-if="saliente.intentos > 0" class="text-status-warning text-xs">
           {{ intentosDe(saliente) }}
         </span>

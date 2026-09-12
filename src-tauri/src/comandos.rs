@@ -54,8 +54,12 @@ pub async fn marcar_leido(account_id: String, casilla: String, uid: u32) -> Resu
 
 /// Pone un mensaje en la cola de salida.
 #[tauri::command]
-pub async fn enviar_mensaje(account_id: String, borrador: Borrador) -> Result<String, String> {
-    correo::enviar(&account_id, &borrador).await
+pub async fn enviar_mensaje(
+    account_id: String,
+    borrador: Borrador,
+    no_antes_de: String,
+) -> Result<String, String> {
+    correo::enviar(&account_id, &borrador, &no_antes_de).await
 }
 
 /// Lo que está esperando salir.
