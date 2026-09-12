@@ -538,7 +538,15 @@ export function useCorreo() {
 	 */
 	const enCamino = ref<{ id: string; borrador: Borrador; hasta: string } | null>(null);
 
-	async function enviar(accountId: string, borrador: Borrador): Promise<boolean> {
+	/**
+	 * Encola un mensaje.
+	 *
+	 * `cuando` vacío quiere decir «con la ventana para arrepentirse»: se encola
+	 * pidiendo que no salga antes de dentro de unos segundos. Con una hora, es
+	 * un envío programado y **no** se ofrece deshacer — para eso está el botón
+	 * de descartar en la cola, que sirve hasta que salga.
+	 */
+	async function enviar(accountId: string, borrador: Borrador, cuando = ''): Promise<boolean> {
 		// **La cuenta viene por argumento y no de `elegida`.** Entre abrir la
 		// ventana de redacción y apretar «Enviar» se puede cambiar de casilla, y
 		// leer la elegida acá mandaría desde la otra: el mensaje sale con una
@@ -552,13 +560,17 @@ export function useCorreo() {
 		enviando.value = true;
 		error.value = '';
 		try {
-			const hasta = noAntesDe(new Date());
+			const programado = cuando !== '';
+			const hasta = programado ? cuando : noAntesDe(new Date());
 			const id = await invoke<string>('enviar_mensaje', {
 				accountId,
 				borrador,
 				noAntesDe: hasta,
 			});
-			enCamino.value = { id, borrador, hasta };
+			// Un programado para el lunes no lleva cuenta regresiva: el cartel
+			// se quedaría tres días en pantalla ofreciendo deshacer algo que
+			// todavía falta mucho. Se descarta desde la cola, que lo muestra.
+			enCamino.value = programado ? null : { id, borrador, hasta };
 			await cargarSalida();
 			return true;
 		} catch (e) {

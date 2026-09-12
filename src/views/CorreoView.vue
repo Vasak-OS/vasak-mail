@@ -182,11 +182,11 @@ async function volverAAbrirLoQueSeMando() {
 	}
 }
 
-async function enviarBorrador(borrador: Borrador) {
+async function enviarBorrador(borrador: Borrador, cuando: string) {
 	// La ventana se cierra **sólo si quedó guardado**. Un borrador que el
 	// servicio rechaza —una dirección mal escrita— tiene que seguir en pantalla
 	// con el error a la vista, o lo que se escribió se pierde.
-	if (await enviar(cuentaDelBorrador.value, borrador)) {
+	if (await enviar(cuentaDelBorrador.value, borrador, cuando)) {
 		redactando.value = null;
 	}
 }
