@@ -26,6 +26,13 @@ const {
 	casillas,
 	casilla,
 	mensajes,
+	visibles,
+	consulta,
+	queSeVe,
+	buscandoEnElServidor,
+	escribirEnElBuscador,
+	limpiarBusqueda,
+	buscarEnElServidor,
 	abierto,
 	cuerpo,
 	cargandoLista,
@@ -192,11 +199,12 @@ const atajos = new Atajos();
  * ahí sí hacen falta las dos cosas.
  */
 function moverse(cuanto: number) {
-	if (mensajes.value.length === 0) {
+	if (visibles.value.length === 0) {
 		return;
 	}
+	const lista = visibles.value;
 	const actual = abierto.value
-		? mensajes.value.findIndex((m) => claveDe(m) === claveDe(abierto.value as Resumen))
+		? lista.findIndex((m) => claveDe(m) === claveDe(abierto.value as Resumen))
 		: -1;
 	// Desde ninguno, `j` abre el primero y `k` el último: es lo que se espera de
 	// entrar por arriba o por abajo.
@@ -396,13 +404,19 @@ onUnmounted(() => {
         <ListaComponent
           :panel="panel"
           :carpeta="dondeEstoy.carpeta"
-          :mensajes="mensajes"
+          :consulta="consulta"
+          :que-se-ve="queSeVe"
+          :buscando-en-el-servidor="buscandoEnElServidor"
+          :mensajes="visibles"
           :abierto="abierto"
           :cargando="cargandoLista"
           :combinada="combinada"
           :cuentas="cuentas"
           @abrir="abrir"
-          @carpetas="pidieronCarpetas = true" />
+          @carpetas="pidieronCarpetas = true"
+          @buscar="escribirEnElBuscador"
+          @buscar-en-el-servidor="buscarEnElServidor"
+          @limpiar="limpiarBusqueda" />
         <MensajeComponent
           :panel="panel"
           :abierto="abierto"

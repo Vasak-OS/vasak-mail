@@ -166,6 +166,15 @@ pub async fn mensajes(account_id: &str, casilla: &str) -> Result<Vec<Resumen>, S
     serde_json::from_str(&json).map_err(|e| format!("no se pudo leer el correo: {e}"))
 }
 
+/// Busca en una casilla, del lado del servidor.
+///
+/// `terminos` es JSON con lo que se busca —**qué**, no un criterio de IMAP—:
+/// el criterio lo arma el sincronizador. Ver `sync/src/consulta.rs`.
+pub async fn buscar(account_id: &str, casilla: &str, terminos: &str) -> Result<Vec<Resumen>, String> {
+    let json = llamar("SearchMessages", &(account_id, casilla, terminos)).await?;
+    serde_json::from_str(&json).map_err(|e| format!("no se pudo leer la búsqueda: {e}"))
+}
+
 /// El texto de un mensaje. Se trae del servidor en el momento.
 pub async fn abrir(account_id: &str, casilla: &str, uid: u32) -> Result<Abierto, String> {
     let json = llamar("GetMessage", &(account_id, casilla, uid)).await?;

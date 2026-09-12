@@ -3,6 +3,7 @@ import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import { computed, nextTick, ref, watch } from 'vue';
 import type { Cuenta, Resumen } from '@/composables/use-correo';
 import { claveDe, esElMismo } from '@/tools/bandeja';
+import type { Alcance } from '@/tools/busqueda';
 import { cuando } from '@/tools/fecha';
 import type { Panel } from '@/tools/paneles';
 
@@ -18,8 +19,19 @@ const props = defineProps<{
 	cuentas: Cuenta[];
 	/** El nombre de la carpeta abierta, para el botón de la ventana angosta. */
 	carpeta: string;
+	/** Lo que se escribió en el buscador. */
+	consulta: string;
+	/** Qué se está mostrando: todo, el filtro local, o lo que trajo el servidor. */
+	queSeVe: Alcance;
+	buscandoEnElServidor: boolean;
 }>();
-const emit = defineEmits<{ abrir: [mensaje: Resumen]; carpetas: [] }>();
+const emit = defineEmits<{
+	abrir: [mensaje: Resumen];
+	carpetas: [];
+	buscar: [texto: string];
+	buscarEnElServidor: [];
+	limpiar: [];
+}>();
 
 const { t, locale } = useI18n();
 
@@ -83,6 +95,36 @@ function cuentaDe(mensaje: Resumen): string {
       <span class="truncate font-medium">{{ carpeta }}</span>
       <span class="text-tx-muted text-xs">▾</span>
     </button>
+
+    <!-- El buscador. Mientras se escribe filtra lo que ya está, que es
+         instantáneo; con Enter se le pregunta al servidor, que es el único que
+         tiene el correo entero. -->
+    <div class="border-ui-border border-b p-2">
+      <input
+        :value="consulta"
+        type="search"
+        class="w-full rounded-corner border border-ui-border bg-ui-bg px-2 py-1 text-sm"
+        :placeholder="t('buscar.campo')"
+        :aria-label="t('buscar.campo')"
+        @input="emit('buscar', ($event.target as HTMLInputElement).value)"
+        @keydown.enter="emit('buscarEnElServidor')"
+        @keydown.escape="emit('limpiar')" />
+
+      <!-- **Decir qué se está mostrando no es cosmético.** «Los últimos
+           doscientos que coinciden» y «todo lo que el servidor encontró» son
+           respuestas distintas a la misma pregunta, y sin esto la lista cambia
+           de significado sin aviso: alguien concluye que un mensaje no existe
+           cuando lo que pasa es que está más atrás. -->
+      <p v-if="buscandoEnElServidor" class="mt-1 text-tx-muted text-xs" role="status">
+        {{ t('buscar.preguntando') }}
+      </p>
+      <p v-else-if="queSeVe === 'local'" class="mt-1 text-tx-muted text-xs">
+        {{ t('buscar.soloLoQueEsta') }}
+      </p>
+      <p v-else-if="queSeVe === 'servidor'" class="mt-1 text-tx-muted text-xs" role="status">
+        {{ t('buscar.delServidor') }}
+      </p>
+    </div>
 
     <p v-if="cargando && !hayAlgo" class="p-3 text-tx-muted text-sm" role="status">
       {{ t('lista.cargando') }}

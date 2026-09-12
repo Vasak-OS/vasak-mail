@@ -22,6 +22,20 @@ pub async fn listar_mensajes(account_id: String, casilla: String) -> Result<Vec<
     correo::mensajes(&account_id, &casilla).await
 }
 
+/// Busca en una casilla, preguntándole al servidor.
+///
+/// El filtro instantáneo sobre lo que ya está en la ventana no pasa por acá:
+/// se hace en el frontend y no toca la red. Éste es el otro, el que llega más
+/// allá de los últimos doscientos.
+#[tauri::command]
+pub async fn buscar_mensajes(
+    account_id: String,
+    casilla: String,
+    terminos: String,
+) -> Result<Vec<Resumen>, String> {
+    correo::buscar(&account_id, &casilla, &terminos).await
+}
+
 /// El texto de un mensaje.
 #[tauri::command]
 pub async fn abrir_mensaje(

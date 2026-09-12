@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { computed, ref } from 'vue';
 import { claveDe, combinados, esElMismo, TODAS } from '@/tools/bandeja';
+import { alcance, filtrados } from '@/tools/busqueda';
 
 /**
  * La carpeta de entrada, que es la única que tienen todas las cuentas con el
@@ -132,6 +133,18 @@ export function useCorreo() {
 	 * servidor cuando alguien las abre.
 	 */
 	const casilla = ref(ENTRADA);
+
+	/** Lo que se escribió en el buscador. */
+	const consulta = ref('');
+	/**
+	 * Lo que contestó el servidor, o `null` si todavía no se le preguntó.
+	 *
+	 * Aparte de `mensajes` a propósito: son dos respuestas distintas a la misma
+	 * pregunta —«los últimos doscientos que coinciden» y «todo lo que el servidor
+	 * encontró»— y mezclarlas haría imposible decir cuál se está mostrando.
+	 */
+	const delServidor = ref<Resumen[] | null>(null);
+	const buscandoEnElServidor = ref(false);
 
 	/** Si lo que se está mirando es la bandeja combinada. */
 	const combinada = computed(() => elegida.value === TODAS);
@@ -334,10 +347,67 @@ export function useCorreo() {
 		// abierta es de la cuenta anterior: «Enviados» de una no es «Enviados»
 		// de la otra, y puede no existir.
 		casilla.value = ENTRADA;
+		limpiarBusqueda();
 		cerrar();
 		casillas.value = [];
 		await cargarMensajes();
 		await cargarCasillas();
+	}
+
+	/**
+	 * Lo que se ve en la lista: el filtro local, o lo que trajo el servidor.
+	 *
+	 * Mientras se escribe filtra lo que ya está, que es instantáneo. Al pedir la
+	 * búsqueda en el servidor, lo que vuelve reemplaza a la lista — y `alcance`
+	 * es lo que permite decir cuál de las dos cosas se está mirando.
+	 */
+	const visibles = computed(() =>
+		delServidor.value !== null ? delServidor.value : filtrados(mensajes.value, consulta.value)
+	);
+
+	const queSeVe = computed(() => alcance(consulta.value, delServidor.value !== null));
+
+	/** Escribir vuelve al filtro local: lo del servidor era para otra consulta. */
+	function escribirEnElBuscador(texto: string) {
+		consulta.value = texto;
+		delServidor.value = null;
+	}
+
+	function limpiarBusqueda() {
+		consulta.value = '';
+		delServidor.value = null;
+	}
+
+	/**
+	 * Le pregunta al servidor, que es el único que tiene el correo entero.
+	 *
+	 * Se busca en el remitente, el asunto y el cuerpo: son los tres campos por
+	 * los que la gente busca, y el del cuerpo es el que el filtro local no puede
+	 * hacer nunca — los cuerpos no se guardan en ninguna parte.
+	 */
+	async function buscarEnElServidor() {
+		const texto = consulta.value.trim();
+		if (!texto || !elegida.value) {
+			return;
+		}
+
+		buscandoEnElServidor.value = true;
+		error.value = '';
+		try {
+			const terminos = JSON.stringify([{ campo: 'cualquiera', valor: texto }]);
+			delServidor.value = await invoke<Resumen[]>('buscar_mensajes', {
+				accountId: elegida.value,
+				casilla: casilla.value,
+				terminos,
+			});
+		} catch (e) {
+			// Se deja el filtro local a la vista en vez de vaciar la lista: no
+			// poder preguntarle al servidor no borra lo que ya se tenía.
+			delServidor.value = null;
+			error.value = String(e);
+		} finally {
+			buscandoEnElServidor.value = false;
+		}
 	}
 
 	/** Abre una carpeta de la cuenta que ya está elegida. */
@@ -347,6 +417,7 @@ export function useCorreo() {
 			return;
 		}
 		casilla.value = ruta;
+		limpiarBusqueda();
 		cerrar();
 		await cargarMensajes();
 	}
@@ -506,6 +577,13 @@ export function useCorreo() {
 		casillas,
 		casilla,
 		mensajes,
+		visibles,
+		consulta,
+		queSeVe,
+		buscandoEnElServidor,
+		escribirEnElBuscador,
+		limpiarBusqueda,
+		buscarEnElServidor,
 		abierto,
 		cuerpo,
 		cargandoLista,
