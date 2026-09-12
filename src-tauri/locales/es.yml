@@ -100,6 +100,11 @@ redactar:
   # Se dice porque no es obvio y cambia lo que la persona espera del botón.
   seEncola: El mensaje se guarda y sale en cuanto se pueda. Podés cerrar la ventana.
   descartarBorrador: ¿Descartar lo que escribiste?
+deshacer:
+  # `{0}` son los segundos que quedan.
+  enCamino: "Mensaje en camino… {0} s"
+  boton: Deshacer
+
 salida:
   titulo: Sin enviar
   # `t()` no interpola. Ver el README.
@@ -108,6 +113,7 @@ salida:
   trabado: No se pudo enviar
   reintentandoOne: "{0} intento"
   reintentandoOther: "{0} intentos"
+  esperandoSuHora: Esperando la hora que pediste
   descartar: Descartar
   confirmarDescartar: Se pierde lo que escribiste. ¿Descartarlo igual?
   sinAsunto: (sin asunto)
