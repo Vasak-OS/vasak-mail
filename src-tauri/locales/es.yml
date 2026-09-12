@@ -14,6 +14,11 @@ ventana:
   minimizar: Minimizar
   maximizar: Maximizar
   cerrar: Cerrar
+adjuntar:
+  boton: Adjuntar
+  titulo: Elegir archivos para adjuntar
+  sacar: Sacar este archivo
+
 atajos:
   titulo: Atajos de teclado
   cerrar: Cerrar

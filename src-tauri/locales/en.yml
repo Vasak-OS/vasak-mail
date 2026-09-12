@@ -5,6 +5,11 @@ ventana:
   minimizar: Minimise
   maximizar: Maximise
   cerrar: Close
+adjuntar:
+  boton: Attach
+  titulo: Choose files to attach
+  sacar: Remove this file
+
 atajos:
   titulo: Keyboard shortcuts
   cerrar: Close

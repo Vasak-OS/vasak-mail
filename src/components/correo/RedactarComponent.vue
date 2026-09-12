@@ -1,7 +1,9 @@
 <script lang="ts" setup>
+import { invoke } from '@tauri-apps/api/core';
+import { open as abrirDialogo } from '@tauri-apps/plugin-dialog';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import { computed, nextTick, onMounted, ref } from 'vue';
-import type { Borrador, Cuenta } from '@/composables/use-correo';
+import type { AdjuntoParaMandar, Borrador, Cuenta } from '@/composables/use-correo';
 import { elegida, momentos, paraElServicio } from '@/tools/programar';
 import { direcciones } from '@/tools/responder';
 
@@ -132,6 +134,63 @@ function atraparElFoco(evento: KeyboardEvent) {
 	}
 }
 
+/**
+ * Los archivos pegados a este borrador.
+ *
+ * Se guardan acá y no en `props.inicial` porque el borrador inicial es lo que
+ * llegó —una respuesta, o nada— y esto es lo que se agrega mientras se escribe.
+ */
+const adjuntos = ref<AdjuntoParaMandar[]>([...(props.inicial.adjuntos ?? [])]);
+/** Lo que falló al adjuntar: un archivo muy grande, uno que no se pudo leer. */
+const errorAdjunto = ref('');
+
+/**
+ * Abre el diálogo del sistema y lee lo que se elija.
+ *
+ * El diálogo del sistema y no un `<input type="file">`: es el que respeta el
+ * portal, el que recuerda la última carpeta y el que se ve como el resto del
+ * escritorio.
+ *
+ * Lee **esta** aplicación y no el servicio. El servicio corre como la persona y
+ * podría leer cualquier archivo suyo; pasarle una ruta sería dejar que la
+ * ventana elija qué lee.
+ */
+async function adjuntar() {
+	errorAdjunto.value = '';
+	let elegidos: string | string[] | null;
+	try {
+		elegidos = await abrirDialogo({ multiple: true, title: t('adjuntar.titulo') });
+	} catch (e) {
+		errorAdjunto.value = String(e);
+		return;
+	}
+	if (!elegidos) {
+		return;
+	}
+
+	for (const ruta of Array.isArray(elegidos) ? elegidos : [elegidos]) {
+		try {
+			adjuntos.value.push(await invoke<AdjuntoParaMandar>('leer_adjunto', { ruta }));
+		} catch (e) {
+			// Se dice cuál falló y se siguen los demás: que un archivo sea
+			// demasiado grande no tiene por qué descartar los otros tres.
+			errorAdjunto.value = String(e);
+		}
+	}
+}
+
+function sacarAdjunto(indice: number) {
+	adjuntos.value.splice(indice, 1);
+	errorAdjunto.value = '';
+}
+
+/** El tamaño en la unidad que se entienda. */
+function pesa(bytes: number): string {
+	if (bytes < 1024) return `${bytes} B`;
+	if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} kB`;
+	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 /** Si está abierto el menú de programar. */
 const programando = ref(false);
 /** Lo que se escribió en el control de fecha y hora, si se usó. */
@@ -179,6 +238,7 @@ function armar(): Borrador {
 		cc: direcciones(cc.value),
 		asunto: asunto.value,
 		cuerpo: cuerpo.value,
+		adjuntos: adjuntos.value,
 	};
 }
 
@@ -290,6 +350,13 @@ function cerrar() {
           @click="cerrar()">
           {{ t('redactar.cancelar') }}
         </button>
+        <button
+          type="button"
+          class="rounded-corner border border-ui-border px-2 py-1 text-sm hover:bg-ui-surface"
+          @click="adjuntar()">
+          📎 {{ t('adjuntar.boton') }}
+        </button>
+
         <!-- Programar va **al lado** de enviar y no adentro de un menú de tres
              puntos: es una forma de mandar, no una preferencia escondida. -->
         <div class="relative">

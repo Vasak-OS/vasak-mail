@@ -202,6 +202,64 @@ pub async fn marcar_leido(account_id: &str, casilla: &str, uid: u32) -> Result<(
     Ok(())
 }
 
+/// Un archivo para pegar a un mensaje, ya leído.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AdjuntoParaMandar {
+    pub nombre: String,
+    pub tipo: String,
+    /// El contenido en base64, que es como lo espera el servicio y como va a
+    /// salir en el mensaje.
+    pub contenido: String,
+    /// Cuánto pesa el archivo de verdad, para poder decirlo.
+    pub bytes: u64,
+}
+
+/// Lee un archivo para adjuntarlo.
+///
+/// **Lo lee esta aplicación y no el servicio.** El servicio corre como la
+/// persona y podría leer cualquier archivo suyo; pasarle una ruta sería dejar
+/// que la ventana elija qué lee. Acá la ruta la eligió la persona en el diálogo
+/// del sistema, que es lo que hace que sea suya.
+///
+/// El tope es del tamaño del archivo y no del mensaje armado. Un archivo de
+/// veinte megas son casi veintisiete en base64, y casi todos los servidores de
+/// correo cortan en veinticinco: mejor decirlo antes de leerlo entero que
+/// después de que el servidor lo rechace.
+pub fn leer_adjunto(ruta: &str) -> Result<AdjuntoParaMandar, String> {
+    use base64::Engine;
+
+    const MAXIMO: u64 = 20 * 1024 * 1024;
+
+    let camino = std::path::Path::new(ruta);
+    let datos = std::fs::metadata(camino).map_err(|e| format!("no se pudo leer el archivo: {e}"))?;
+    if !datos.is_file() {
+        return Err("eso no es un archivo".into());
+    }
+    if datos.len() > MAXIMO {
+        return Err(format!(
+            "el archivo pesa {} MB y el máximo son {} MB",
+            datos.len() / (1024 * 1024),
+            MAXIMO / (1024 * 1024)
+        ));
+    }
+
+    let crudo = std::fs::read(camino).map_err(|e| format!("no se pudo leer el archivo: {e}"))?;
+
+    Ok(AdjuntoParaMandar {
+        // Sólo el nombre, nunca la ruta: el destinatario no tiene por qué
+        // enterarse de en qué carpeta estaba el archivo.
+        nombre: camino
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "adjunto".into()),
+        // Vacío para que lo decida el servicio por la extensión, que es donde
+        // vive esa tabla.
+        tipo: String::new(),
+        contenido: base64::engine::general_purpose::STANDARD.encode(&crudo),
+        bytes: datos.len(),
+    })
+}
+
 /// Lo que la persona escribió, camino al servicio.
 ///
 /// **Sin el `De`**: lo pone el servicio con la dirección de la cuenta. Que lo

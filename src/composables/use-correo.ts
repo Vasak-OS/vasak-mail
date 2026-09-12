@@ -87,6 +87,16 @@ export interface Abierto {
 	nombre: string;
 }
 
+/** Un archivo para pegar a un mensaje, ya leído. */
+export interface AdjuntoParaMandar {
+	nombre: string;
+	tipo: string;
+	/** El contenido en base64. */
+	contenido: string;
+	/** Cuánto pesa el archivo de verdad, para poder decirlo. */
+	bytes: number;
+}
+
 /** Lo que se escribe. **Sin el remitente**: lo pone el servicio. */
 export interface Borrador {
 	para: string[];
@@ -95,6 +105,8 @@ export interface Borrador {
 	cuerpo: string;
 	en_respuesta_a: string;
 	referencias: string[];
+	/** Los archivos que van pegados, con su contenido. */
+	adjuntos?: AdjuntoParaMandar[];
 }
 
 /** Un mensaje esperando salir. */

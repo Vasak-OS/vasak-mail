@@ -2,7 +2,9 @@
 //!
 //! Una capa fina sobre `correo.rs`: todo el trabajo lo hace el sincronizador.
 
-use crate::correo::{self, Abierto, Borrador, Casilla, Cuenta, Resumen, Saliente};
+use crate::correo::{
+    self, Abierto, AdjuntoParaMandar, Borrador, Casilla, Cuenta, Resumen, Saliente,
+};
 
 /// Las cuentas con correo, y cuánto tienen sin leer.
 #[tauri::command]
@@ -60,6 +62,12 @@ pub async fn enviar_mensaje(
     no_antes_de: String,
 ) -> Result<String, String> {
     correo::enviar(&account_id, &borrador, &no_antes_de).await
+}
+
+/// Lee un archivo para adjuntarlo, desde una ruta que eligió la persona.
+#[tauri::command]
+pub async fn leer_adjunto(ruta: String) -> Result<AdjuntoParaMandar, String> {
+    correo::leer_adjunto(&ruta)
 }
 
 /// Lo que está esperando salir.
