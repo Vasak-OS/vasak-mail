@@ -7,6 +7,7 @@ import CuentasComponent from '@/components/correo/CuentasComponent.vue';
 import DeshacerComponent from '@/components/correo/DeshacerComponent.vue';
 import ListaComponent from '@/components/correo/ListaComponent.vue';
 import MensajeComponent from '@/components/correo/MensajeComponent.vue';
+import PreferenciasComponent from '@/components/correo/PreferenciasComponent.vue';
 import RedactarComponent from '@/components/correo/RedactarComponent.vue';
 import { type Borrador, type Resumen, useCorreo } from '@/composables/use-correo';
 import { useReactiveIcons } from '@/composables/useReactiveIcon';
@@ -194,6 +195,8 @@ async function enviarBorrador(borrador: Borrador, cuando: string) {
 
 /** Si está a la vista la lista de atajos. */
 const mostrandoAtajos = ref(false);
+/** Si está a la vista la ventana de preferencias. */
+const mostrandoPreferencias = ref(false);
 
 /** Si se pidió cambiar de carpeta. Sólo cambia lo que se ve en angosto. */
 const pidieronCarpetas = ref(false);
@@ -261,8 +264,9 @@ function volverALaLista() {
 function alApretar(evento: KeyboardEvent) {
 	// La lista de atajos se cierra con Escape, y eso no pasa por el mapa: es de
 	// este diálogo y no una acción de la aplicación.
-	if (evento.key === 'Escape' && mostrandoAtajos.value) {
+	if (evento.key === 'Escape' && (mostrandoAtajos.value || mostrandoPreferencias.value)) {
 		mostrandoAtajos.value = false;
+		mostrandoPreferencias.value = false;
 		return;
 	}
 	// Con la ventana de redacción abierta el teclado es suyo. Sus propios atajos
@@ -370,6 +374,14 @@ onUnmounted(() => {
       </span>
       <button
         type="button"
+        class="rounded-corner border border-ui-border bg-ui-bg/80 px-2 py-1 text-sm hover:bg-ui-surface"
+        :aria-label="t('preferencias.titulo')"
+        :title="t('preferencias.titulo')"
+        @click="mostrandoPreferencias = true">
+        ⚙
+      </button>
+      <button
+        type="button"
         class="rounded-corner border border-ui-border bg-ui-bg/80 p-1 hover:bg-ui-surface disabled:opacity-50"
         :aria-label="t('lista.actualizar')"
         :title="t('lista.actualizar')"
@@ -397,6 +409,9 @@ onUnmounted(() => {
          aparte: escribir un correo es algo que se hace y se termina. -->
     <div class="relative flex min-h-0 flex-1 flex-col">
       <AtajosComponent :abierto="mostrandoAtajos" @cerrar="mostrandoAtajos = false" />
+      <PreferenciasComponent
+        :abierto="mostrandoPreferencias"
+        @cerrar="mostrandoPreferencias = false" />
 
       <!-- La ventana para arrepentirse. Va sobre todo lo demás porque es lo
            único con tiempo: si no se ve, no sirve. -->
