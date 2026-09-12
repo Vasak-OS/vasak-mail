@@ -64,6 +64,47 @@ export const GMAIL: Readonly<Record<string, Accion>> = Object.freeze({
 });
 
 /**
+ * El juego estilo Vim.
+ *
+ * Es **otro mapa, no otro código**: eso era lo que había que demostrar cuando se
+ * escribió el módulo, y es lo que hace que agregarlo cueste esto.
+ *
+ * Cambia donde Vim tiene una convención fuerte —`h` y `l` para salir y entrar,
+ * `g g` para ir arriba de todo— y coincide donde no la tiene. `j` y `k` son las
+ * mismas en los dos juegos porque Vim es de donde Gmail las sacó.
+ */
+export const VIM: Readonly<Record<string, Accion>> = Object.freeze({
+	j: 'siguiente',
+	ArrowDown: 'siguiente',
+	k: 'anterior',
+	ArrowUp: 'anterior',
+	l: 'abrir',
+	Enter: 'abrir',
+	h: 'volver',
+	r: 'responder',
+	c: 'redactar',
+	'.': 'actualizar',
+	'g g': 'irALaEntrada',
+	'?': 'ayuda',
+});
+
+/** Los juegos que hay, por su nombre en las preferencias. */
+export const JUEGOS: Readonly<Record<string, Readonly<Record<string, Accion>>>> = Object.freeze({
+	gmail: GMAIL,
+	vim: VIM,
+});
+
+/**
+ * El mapa que corresponde a un nombre guardado.
+ *
+ * Un nombre que no existe da el de siempre: una preferencia rara no puede dejar
+ * a nadie sin teclado.
+ */
+export function juego(nombre: string | undefined): Readonly<Record<string, Accion>> {
+	return JUEGOS[nombre ?? ''] ?? GMAIL;
+}
+
+/**
  * Cuánto vive una secuencia a medias.
  *
  * `g` sola no hace nada: espera la segunda tecla. Sin vencimiento, una `g`

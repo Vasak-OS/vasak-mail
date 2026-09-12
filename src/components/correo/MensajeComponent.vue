@@ -4,6 +4,7 @@ import { save as guardarDialogo } from '@tauri-apps/plugin-dialog';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import { computed, nextTick, ref, watch } from 'vue';
 import type { Abierto, Adjunto, Resumen } from '@/composables/use-correo';
+import { usePreferencias } from '@/composables/use-preferencias';
 import type { Panel } from '@/tools/paneles';
 
 const props = defineProps<{
@@ -27,15 +28,17 @@ const { t, locale } = useI18n();
  * de texto se queda como opción y **no desaparece**: es la que sirve cuando un
  * mensaje se ve raro, o cuando no se le tiene confianza a quien lo mandó.
  */
-const conFormato = ref(true);
+const { vistaPorOmision } = usePreferencias();
 
-// Al cambiar de mensaje se vuelve al formato. Que la elección se pegue al
-// siguiente haría que un mensaje se viera sin formato sin motivo aparente, y
-// nadie recordaría haberlo pedido.
+const conFormato = ref(vistaPorOmision.value === 'formato');
+
+// Al cambiar de mensaje se vuelve a la vista de siempre. Que la elección se
+// pegue al siguiente haría que un mensaje se viera distinto sin motivo
+// aparente, y nadie recordaría haberlo pedido.
 watch(
 	() => props.abierto,
 	() => {
-		conFormato.value = true;
+		conFormato.value = vistaPorOmision.value === 'formato';
 		// Las imágenes son del mensaje que estaba: dejarlas haría que el
 		// siguiente apareciera con imágenes que nadie pidió para él.
 		imagenes.value = new Map();

@@ -93,6 +93,17 @@ preferencias:
   cuenta: Only how many arrived and to which account
   remitente: Also who sent it
   remitente_y_asunto: Also what it is about
+  vista: How a message opens
+  vistaPorQue: >-
+    The plain-text view never goes away: it is still on every message, and it is
+    the one to use when a message looks odd or when you do not trust who sent
+    it.
+  vista_formato: Formatted
+  vista_texto: As plain text
+  atajos: Keyboard shortcuts
+  atajosPorQue: "The full list is shown with the ? key"
+  atajos_gmail: Gmail style
+  atajos_vim: Vim style
   conVarios: >-
     With more than one message the card names none of them: it would say one
     and stay quiet about the rest.
