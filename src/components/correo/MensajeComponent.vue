@@ -5,6 +5,8 @@ import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import { computed, nextTick, ref, watch } from 'vue';
 import type { Abierto, Adjunto, Resumen } from '@/composables/use-correo';
 import { usePreferencias } from '@/composables/use-preferencias';
+import { coloresDelTema, conLasImagenes, documentoDe } from '@/tools/formato';
+import { interpolar } from '@/tools/interpolar';
 import type { Panel } from '@/tools/paneles';
 
 const props = defineProps<{

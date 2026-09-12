@@ -2,7 +2,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { open as abrirDialogo } from '@tauri-apps/plugin-dialog';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
-import { computed, nextTick, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef } from 'vue';
 import type { AdjuntoParaMandar, Borrador, Cuenta } from '@/composables/use-correo';
 import { elegida, momentos, paraElServicio } from '@/tools/programar';
 import { direcciones } from '@/tools/responder';
@@ -337,6 +337,33 @@ function cerrar() {
           rows="12"
           class="min-h-40 flex-1 resize-none rounded-corner-sm border border-ui-border-strong bg-ui-surface/40 px-2 py-1 font-sans text-sm"></textarea>
       </label>
+
+      <!-- Lo que se va a mandar pegado.
+           El tamaño va al lado del nombre porque es lo que decide si el mensaje
+           llega: casi ningún servidor avisa hasta que se intenta, y para
+           entonces el mensaje ya viajó. -->
+      <ul v-if="adjuntos.length" class="flex flex-col gap-1">
+        <li
+          v-for="(adjunto, indice) in adjuntos"
+          :key="`${adjunto.nombre}-${indice}`"
+          class="flex items-center gap-2 rounded-corner-sm border border-ui-border bg-ui-surface/40 px-2 py-1 text-sm">
+          <span class="min-w-0 flex-1 truncate">{{ adjunto.nombre }}</span>
+          <span class="text-tx-muted shrink-0 text-xs">{{ pesa(adjunto.bytes) }}</span>
+          <button
+            type="button"
+            class="rounded-corner-sm px-1 text-tx-muted shrink-0 hover:bg-ui-surface hover:text-tx-primary"
+            :title="t('adjuntar.sacar')"
+            :aria-label="t('adjuntar.sacar')"
+            @click="sacarAdjunto(indice)">
+            ✕
+          </button>
+        </li>
+      </ul>
+
+      <!-- Que un archivo falle no descarta los otros, así que esto es un aviso y
+           no un error del formulario: los que sí entraron están en la lista de
+           arriba. -->
+      <p v-if="errorAdjunto" class="text-status-warning text-xs">{{ errorAdjunto }}</p>
 
       <!-- Se dice porque cambia lo que la persona espera del botón: «Enviar» no
            espera al servidor, guarda el mensaje y lo manda cuando pueda. Sin
