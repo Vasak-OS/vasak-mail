@@ -73,6 +73,20 @@ pub async fn enviar_mensaje(
     correo::enviar(&account_id, &borrador, &no_antes_de).await
 }
 
+/// Baja un adjunto y lo guarda donde la persona eligió.
+///
+/// Devuelve `true` si el archivo puede estar cortado.
+#[tauri::command]
+pub async fn guardar_adjunto(
+    account_id: String,
+    casilla: String,
+    uid: u32,
+    parte: String,
+    destino: String,
+) -> Result<bool, String> {
+    correo::guardar_adjunto(&account_id, &casilla, uid, &parte, &destino).await
+}
+
 /// Lee un archivo para adjuntarlo, desde una ruta que eligió la persona.
 #[tauri::command]
 pub async fn leer_adjunto(ruta: String) -> Result<AdjuntoParaMandar, String> {

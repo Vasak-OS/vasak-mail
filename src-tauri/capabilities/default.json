@@ -15,6 +15,7 @@
     "core:window:allow-show",
     "shell:allow-open",
     "dialog:allow-open",
+    "dialog:allow-save",
     "vicons:default",
     "config-manager:default",
     "vsk-contextual-menu:default",

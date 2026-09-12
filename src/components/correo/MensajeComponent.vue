@@ -1,7 +1,9 @@
 <script lang="ts" setup>
+import { invoke } from '@tauri-apps/api/core';
+import { save as guardarDialogo } from '@tauri-apps/plugin-dialog';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import { computed, nextTick, ref, watch } from 'vue';
-import type { Abierto, Resumen } from '@/composables/use-correo';
+import type { Abierto, Adjunto, Resumen } from '@/composables/use-correo';
 import type { Panel } from '@/tools/paneles';
 
 const props = defineProps<{
@@ -140,6 +142,76 @@ function imagenesBloqueadas(cuantas: number): string {
  */
 const botonVolver = ref<HTMLButtonElement | null>(null);
 
+/**
+ * Los adjuntos que se están bajando, por su número de parte.
+ *
+ * Un conjunto y no uno solo: con dos guardados en curso, el segundo pisaba al
+ * primero y el `finally` del que terminara antes desbloqueaba los dos botones
+ * mientras el otro seguía viajando.
+ */
+const guardando = ref<Set<string>>(new Set());
+/** Lo último que pasó al guardar: dónde quedó, o qué falló. */
+const avisoGuardar = ref('');
+
+/**
+ * Baja un adjunto y lo guarda donde la persona elija.
+ *
+ * **El nombre del mensaje es una sugerencia.** Llega saneado del servicio —sin
+ * separadores de ruta, sin `..`— pero aun así sólo se propone: el destino lo
+ * elige la persona en el diálogo del sistema, que es lo que hace que la ruta
+ * sea suya. Ver `adjuntos.rs` del sincronizador.
+ */
+async function guardar(adjunto: Adjunto) {
+	if (!props.abierto) {
+		return;
+	}
+	avisoGuardar.value = '';
+
+	// **De qué mensaje es, antes de abrir el diálogo.** Elegir el destino puede
+	// tardar lo que tarde, y mientras tanto se puede cambiar de mensaje con un
+	// clic o con la tecla `j`. Leer `props.abierto` después pediría el número de
+	// parte de este adjunto con la identidad del mensaje nuevo: se bajaría otro
+	// archivo y se escribiría en el destino que se acaba de elegir.
+	const de = {
+		accountId: props.abierto.account_id,
+		casilla: props.abierto.casilla,
+		uid: props.abierto.uid,
+	};
+
+	let destino: string | null;
+	try {
+		destino = await guardarDialogo({ defaultPath: adjunto.nombre });
+	} catch (e) {
+		avisoGuardar.value = String(e);
+		return;
+	}
+	if (!destino) {
+		return;
+	}
+
+	// Sobre una copia: Vue no ve una mutación de un `Set` en su lugar, y los
+	// botones no se enterarían de que hay algo en curso.
+	guardando.value = new Set(guardando.value).add(adjunto.parte);
+	try {
+		const recortado = await invoke<boolean>('guardar_adjunto', {
+			...de,
+			parte: adjunto.parte,
+			destino,
+		});
+		// Si puede estar cortado se dice. Guardar un archivo incompleto sin
+		// avisar deja algo que no abre ningún programa y ninguna explicación.
+		avisoGuardar.value = recortado
+			? t('mensaje.guardadoCortado')
+			: interpolar(t('mensaje.guardadoEn'), destino);
+	} catch (e) {
+		avisoGuardar.value = String(e);
+	} finally {
+		const quedan = new Set(guardando.value);
+		quedan.delete(adjunto.parte);
+		guardando.value = quedan;
+	}
+}
+
 watch(
 	() => props.abierto,
 	async (ahora) => {
@@ -239,11 +311,22 @@ const cuando = computed(() => {
           v-if="cuerpo.adjuntos.length > 0"
           class="mx-4 mt-3 rounded-corner bg-ui-surface/60 p-2 text-xs">
           <p>📎 {{ t('mensaje.adjuntos') }}</p>
-          <ul class="mt-1 flex flex-col gap-0.5">
-            <li v-for="a in cuerpo.adjuntos" :key="a.parte" class="truncate" :title="a.tipo">
-              {{ a.nombre }}
+          <ul class="mt-1 flex flex-col gap-1">
+            <li
+              v-for="a in cuerpo.adjuntos"
+              :key="a.parte"
+              class="flex items-baseline justify-between gap-2">
+              <span class="truncate" :title="a.tipo">{{ a.nombre }}</span>
+              <button
+                type="button"
+                class="shrink-0 rounded-corner border border-ui-border px-1.5 hover:bg-ui-surface disabled:opacity-50"
+                :disabled="guardando.has(a.parte)"
+                @click="guardar(a)">
+                {{ guardando.has(a.parte) ? t('mensaje.guardando') : t('mensaje.guardar') }}
+              </button>
             </li>
           </ul>
+          <p v-if="avisoGuardar" class="mt-1 text-tx-muted" role="status">{{ avisoGuardar }}</p>
         </div>
 
         <!-- El mensaje con su formato, **adentro de un contenedor cerrado**.

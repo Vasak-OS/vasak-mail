@@ -1,6 +1,6 @@
 [package]
 name = "vasak-mail"
-version = "0.9.0"
+version = "0.10.0"
 description = "El correo de VasakOS"
 authors = ["Vasak Group", "Joaquin (Pato) Decima"]
 edition = "2021"
@@ -26,7 +26,7 @@ serde_json = "1"
 # hablar el idioma de la sesión y abrir el menú del sistema con el clic derecho.
 tauri-plugin-vicons = "2"
 tauri-plugin-config-manager = "2"
-tauri-plugin-i18n-vsk = "2.1.1"
+tauri-plugin-i18n-vsk = "2.3.0"
 tauri-plugin-vsk-contextual-menu = "2"
 tauri-plugin-shell = "2"
 # El diálogo para elegir un archivo que adjuntar. Es Rust puro y habla con el

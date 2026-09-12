@@ -58,6 +58,7 @@ pub fn run() {
             comandos::marcar_leido,
             comandos::enviar_mensaje,
             comandos::leer_adjunto,
+            comandos::guardar_adjunto,
             comandos::listar_salientes,
             comandos::descartar_saliente,
         ])

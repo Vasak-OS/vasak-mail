@@ -237,6 +237,95 @@ pub struct AdjuntoParaMandar {
     pub bytes: u64,
 }
 
+/// Lo que devuelve el servicio al pedir un adjunto.
+#[derive(Debug, Clone, Deserialize)]
+struct AdjuntoBajado {
+    /// El contenido, en base64.
+    contenido: String,
+    /// Si el servidor mandó justo el tope: puede faltar el final.
+    #[serde(default)]
+    recortado: bool,
+}
+
+/// Baja un adjunto y lo escribe donde la persona haya elegido.
+///
+/// **Escribe esta aplicación y no el servicio.** El servicio corre como la
+/// persona y podría escribir en cualquier archivo suyo; pasarle una ruta sería
+/// dejar que la ventana elija dónde escribe. La regla es la misma que para
+/// mandar, al revés: el proceso que toca el disco es aquel cuyo dueño eligió la
+/// ruta.
+///
+/// Devuelve si el archivo puede estar cortado, para que la ventana lo diga.
+/// Guardar un archivo incompleto sin avisar deja algo que no abre ningún
+/// programa y ninguna explicación de por qué.
+pub async fn guardar_adjunto(
+    account_id: &str,
+    casilla: &str,
+    uid: u32,
+    parte: &str,
+    destino: &str,
+) -> Result<bool, String> {
+    use base64::Engine;
+
+    let json = llamar("GetAttachment", &(account_id, casilla, uid, parte)).await?;
+    let bajado: AdjuntoBajado =
+        serde_json::from_str(&json).map_err(|e| format!("no se pudo leer el adjunto: {e}"))?;
+
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(bajado.contenido.as_bytes())
+        .map_err(|e| format!("el adjunto llegó mal: {e}"))?;
+
+    escribir_entero(std::path::Path::new(destino), &bytes)?;
+    Ok(bajado.recortado)
+}
+
+/// Escribe un archivo **entero o nada**.
+///
+/// `std::fs::write` abre con `truncate`, así que vacía el archivo que había
+/// antes de escribir el primer byte: si el disco se llena a mitad de camino, lo
+/// que queda es el archivo viejo destruido y el nuevo a medias. Guardar un
+/// adjunto encima de algo que ya estaba no puede tener ese final.
+///
+/// Se escribe a un temporal en el **mismo directorio** —otro sistema de
+/// archivos haría que `rename` no sea atómico— y recién con todos los bytes en
+/// disco se reemplaza el destino.
+///
+/// El nombre del temporal no sale del destino ni de nada que haya elegido otro:
+/// derivarlo del nombre del adjunto sería volver a meter en una ruta algo que
+/// escribió quien mandó el mensaje.
+fn escribir_entero(destino: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+
+    let directorio = destino
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let unico = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let temporal = directorio.join(format!(".vasak-mail-{unico}-{}", std::process::id()));
+
+    let escritura = (|| -> std::io::Result<()> {
+        let mut archivo = std::fs::File::create(&temporal)?;
+        archivo.write_all(bytes)?;
+        // Antes del `rename`: sin esto el nombre nuevo puede quedar apuntando a
+        // un archivo cuyo contenido todavía no llegó al disco.
+        archivo.sync_all()
+    })();
+
+    if let Err(e) = escritura {
+        // El temporal queda a medias y no le sirve a nadie. Si tampoco se puede
+        // borrar, no se pisa el error de verdad con el de la limpieza.
+        let _ = std::fs::remove_file(&temporal);
+        return Err(format!("no se pudo guardar: {e}"));
+    }
+
+    std::fs::rename(&temporal, destino).map_err(|e| {
+        let _ = std::fs::remove_file(&temporal);
+        format!("no se pudo guardar: {e}")
+    })
+}
+
 /// Lee un archivo para adjuntarlo.
 ///
 /// **Lo lee esta aplicación y no el servicio.** El servicio corre como la

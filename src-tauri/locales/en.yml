@@ -64,6 +64,10 @@ lista:
   conAdjuntos: Has an attachment
   noLeido: Unread
 mensaje:
+  guardar: Save
+  guardando: Saving…
+  guardadoEn: "Saved to {0}"
+  guardadoCortado: "Saved, but the file was larger than what gets downloaded and may be incomplete."
   mostrarImagenes: "Show"
   trayendoImagenes: "Fetching…"
   imagenesQueFallaron: "Could not fetch {0} image(s)."
