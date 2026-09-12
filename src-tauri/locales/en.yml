@@ -89,6 +89,15 @@ deshacer:
   enCamino: "Message on its way… {0}s"
   boton: Undo
 
+programar:
+  boton: Schedule
+  titulo: Choose when it goes out
+  estaTarde: This evening
+  mananaTemprano: Tomorrow morning
+  elLunes: Monday morning
+  aMano: Or pick the date and time
+  confirmar: Schedule it
+
 salida:
   titulo: Not sent
   esperandoOne: "{0} waiting to go out"

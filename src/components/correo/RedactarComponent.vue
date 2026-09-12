@@ -1,7 +1,8 @@
 <script lang="ts" setup>
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
-import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef } from 'vue';
+import { computed, nextTick, onMounted, ref } from 'vue';
 import type { Borrador, Cuenta } from '@/composables/use-correo';
+import { elegida, momentos, paraElServicio } from '@/tools/programar';
 import { direcciones } from '@/tools/responder';
 
 const props = defineProps<{
@@ -17,12 +18,13 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-	enviar: [borrador: Borrador];
+	/** `cuando` es una hora en RFC 3339, o vacío para «con la ventana de siempre». */
+	enviar: [borrador: Borrador, cuando: string];
 	elegirCuenta: [accountId: string];
 	cerrar: [];
 }>();
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 
 const para = ref(props.inicial.para.join(', '));
 const cc = ref(props.inicial.cc.join(', '));
@@ -130,17 +132,63 @@ function atraparElFoco(evento: KeyboardEvent) {
 	}
 }
 
-function enviar() {
+/** Si está abierto el menú de programar. */
+const programando = ref(false);
+/** Lo que se escribió en el control de fecha y hora, si se usó. */
+const aMano = ref('');
+
+const opciones = computed(() => momentos(new Date()));
+
+/** La hora de una opción, en el idioma de la sesión. */
+function aQueHora(cuando: Date): string {
+	return new Intl.DateTimeFormat(locale.value, {
+		weekday: 'short',
+		hour: '2-digit',
+		minute: '2-digit',
+	}).format(cuando);
+}
+
+/**
+ * Programa y manda. La hora se pasa al servicio en UTC.
+ *
+ * Una hora que ya pasó no llega hasta acá: `momentos` no ofrece las que
+ * pasaron y `elegida` rechaza las que se escriban a mano. Programar para antes
+ * de ahora haría salir el mensaje en el acto, que es lo contrario de lo que se
+ * pidió — y sin nada que lo explique.
+ */
+function programar(cuando: Date) {
+	programando.value = false;
 	if (!sePuedeEnviar.value) {
 		return;
 	}
-	emit('enviar', {
+	emit('enviar', armar(), paraElServicio(cuando));
+}
+
+function programarAMano() {
+	const cuando = elegida(aMano.value, new Date());
+	if (cuando) {
+		programar(cuando);
+	}
+}
+
+/** El borrador con lo que hay en pantalla. */
+function armar(): Borrador {
+	return {
 		...props.inicial,
 		para: direcciones(para.value),
 		cc: direcciones(cc.value),
 		asunto: asunto.value,
 		cuerpo: cuerpo.value,
-	});
+	};
+}
+
+function enviar() {
+	if (!sePuedeEnviar.value) {
+		return;
+	}
+	// Vacío quiere decir «con la ventana para arrepentirse de siempre»: la hora
+	// la calcula quien dibuja ese botón, no esta ventana.
+	emit('enviar', armar(), '');
 }
 
 function cerrar() {
@@ -242,6 +290,51 @@ function cerrar() {
           @click="cerrar()">
           {{ t('redactar.cancelar') }}
         </button>
+        <!-- Programar va **al lado** de enviar y no adentro de un menú de tres
+             puntos: es una forma de mandar, no una preferencia escondida. -->
+        <div class="relative">
+          <button
+            type="button"
+            class="rounded-corner border border-ui-border px-2 py-1 text-sm hover:bg-ui-surface disabled:opacity-50"
+            :disabled="!sePuedeEnviar"
+            :aria-expanded="programando"
+            :title="t('programar.titulo')"
+            @click="programando = !programando">
+            {{ t('programar.boton') }}
+          </button>
+
+          <div
+            v-if="programando"
+            class="absolute bottom-full right-0 z-10 mb-1 w-60 rounded-corner border border-ui-border bg-ui-bg p-2 shadow-lg">
+            <ul class="flex flex-col">
+              <li v-for="opcion in opciones" :key="opcion.clave">
+                <button
+                  type="button"
+                  class="flex w-full items-baseline justify-between gap-2 rounded-corner px-2 py-1 text-left text-sm hover:bg-ui-surface"
+                  @click="programar(opcion.cuando)">
+                  <span>{{ t(opcion.clave) }}</span>
+                  <span class="text-tx-muted text-xs">{{ aQueHora(opcion.cuando) }}</span>
+                </button>
+              </li>
+            </ul>
+
+            <label class="mt-2 flex flex-col gap-1 text-tx-muted text-xs">
+              {{ t('programar.aMano') }}
+              <input
+                v-model="aMano"
+                type="datetime-local"
+                class="rounded-corner border border-ui-border bg-ui-bg px-2 py-1 text-sm text-tx-main" />
+            </label>
+            <button
+              type="button"
+              class="mt-1 w-full rounded-corner bg-primary px-2 py-1 text-sm text-tx-on-primary disabled:opacity-50"
+              :disabled="!elegida(aMano, new Date())"
+              @click="programarAMano()">
+              {{ t('programar.confirmar') }}
+            </button>
+          </div>
+        </div>
+
         <button
           type="submit"
           class="rounded-corner bg-primary px-3 py-1 text-sm text-tx-on-primary disabled:opacity-50"
