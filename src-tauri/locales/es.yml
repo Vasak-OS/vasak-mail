@@ -105,6 +105,15 @@ deshacer:
   enCamino: "Mensaje en camino… {0} s"
   boton: Deshacer
 
+programar:
+  boton: Programar
+  titulo: Elegir cuándo sale
+  estaTarde: Esta tarde
+  mananaTemprano: Mañana a la mañana
+  elLunes: El lunes a la mañana
+  aMano: O elegí la fecha y la hora
+  confirmar: Programar el envío
+
 salida:
   titulo: Sin enviar
   # `t()` no interpola. Ver el README.
