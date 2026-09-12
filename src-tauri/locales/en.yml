@@ -125,3 +125,14 @@ salida:
   descartar: Discard
   confirmarDescartar: What you wrote will be lost. Discard it anyway?
   sinAsunto: (no subject)
+preferencias:
+  titulo: Preferences
+  detalleDelAviso: What the new-mail alert says
+  detalle:
+    cantidad: Only how many arrived
+    remitente: And who from
+    asunto: And what about
+  detalleAviso: The alert shows even if the screen is locked or on a projector.
+  segundosParaDeshacer: Time to undo a send
+  segundos: "{0} s"
+  sinEspera: No wait

@@ -142,3 +142,14 @@ salida:
   descartar: Descartar
   confirmarDescartar: Se pierde lo que escribiste. ¿Descartarlo igual?
   sinAsunto: (sin asunto)
+preferencias:
+  titulo: Preferencias
+  detalleDelAviso: Qué dice el aviso de correo nuevo
+  detalle:
+    cantidad: Sólo cuántos llegaron
+    remitente: Y de quién
+    asunto: Y de qué
+  detalleAviso: El aviso se ve aunque la pantalla esté bloqueada o proyectada.
+  segundosParaDeshacer: Tiempo para deshacer un envío
+  segundos: "{0} s"
+  sinEspera: Sin espera

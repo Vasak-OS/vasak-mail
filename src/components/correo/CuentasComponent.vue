@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import { computed } from 'vue';
+import PreferenciasComponent from '@/components/correo/PreferenciasComponent.vue';
 import SalidaComponent from '@/components/correo/SalidaComponent.vue';
 import type { Casilla, Cuenta, Saliente } from '@/composables/use-correo';
 import { TODAS } from '@/tools/bandeja';
@@ -163,5 +164,8 @@ function nombreDe(c: Casilla): string {
          lista de cuentas esté vacía —o que no se haya podido leer— no puede
          esconder correo que alguien escribió. -->
     <SalidaComponent :salientes="salientes" @descartar="emit('descartar', $event)" />
+
+    <!-- Al pie de todo: se tocan una vez y no se vuelven a mirar. -->
+    <PreferenciasComponent />
   </aside>
 </template>

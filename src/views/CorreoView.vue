@@ -321,7 +321,13 @@ let dejarDeEscuchar: UnlistenFn | null = null;
  */
 let desmontada = false;
 
+const { cargar: cargarPreferencias } = usePreferencias();
+
 onMounted(async () => {
+	// Antes que el correo: la ventana para deshacer sale de acá, y un envío en
+	// los primeros segundos usaría el valor de omisión en vez del elegido.
+	await cargarPreferencias();
+
 	// En la ventana entera y no en un elemento: los atajos tienen que andar sin
 	// que haya que hacer clic en la lista primero, que es lo que pasaría si el
 	// oyente colgara de un panel.

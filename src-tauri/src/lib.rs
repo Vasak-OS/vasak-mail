@@ -6,6 +6,7 @@
 mod comandos;
 mod correo;
 mod locales;
+mod preferencias;
 mod ventana;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -61,6 +62,8 @@ pub fn run() {
             comandos::guardar_adjunto,
             comandos::listar_salientes,
             comandos::descartar_saliente,
+            preferencias::leer_preferencias,
+            preferencias::guardar_preferencias,
         ])
         // El sincronizador avisa cuando llega correo; esto lo traduce a un
         // evento que la ventana escucha. Ver `correo.rs`.
