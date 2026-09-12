@@ -12,6 +12,7 @@
  */
 import { invoke } from '@tauri-apps/api/core';
 import { ref } from 'vue';
+import { SEGUNDOS_PARA_DESHACER, segundosValidos } from '@/tools/deshacer';
 
 /** Con qué se abre un mensaje. */
 export type Vista = 'formato' | 'texto';
@@ -27,6 +28,15 @@ const JUEGOS = ['gmail', 'vim'] as const;
  */
 const vistaPorOmision = ref<Vista>('formato');
 const juegoDeAtajos = ref<string>('gmail');
+
+/**
+ * Cuánto dura la ventana para arrepentirse de un envío.
+ *
+ * Ésta es **sólo de la ventana**: el servicio recibe una hora ya calculada y no
+ * necesita saber de dónde salió. Vive en el mismo archivo que las demás igual,
+ * porque tener dos lugares según quién lee sería peor que tener uno.
+ */
+const segundosParaDeshacer = ref<number>(SEGUNDOS_PARA_DESHACER);
 
 let cargadas = false;
 
@@ -47,6 +57,11 @@ export async function cargarPreferencias(): Promise<void> {
 		if ((JUEGOS as readonly string[]).includes(guardado?.juego_de_atajos)) {
 			juegoDeAtajos.value = guardado.juego_de_atajos;
 		}
+		// Ésta se acota en vez de descartarse: un número fuera de rango sigue
+		// diciendo qué quiso la persona. Ver `segundosValidos`.
+		if (guardado?.segundos_para_deshacer !== undefined) {
+			segundosParaDeshacer.value = segundosValidos(guardado.segundos_para_deshacer);
+		}
 	} catch (e) {
 		// Sin preferencias se usan las de siempre, que es lo que había antes de
 		// que existiera este archivo. No poder leerlas no puede impedir abrir.
@@ -64,8 +79,11 @@ export async function guardarPreferencia(clave: string, valor: unknown): Promise
 	if (clave === 'juego_de_atajos' && typeof valor === 'string') {
 		juegoDeAtajos.value = valor;
 	}
+	if (clave === 'segundos_para_deshacer') {
+		segundosParaDeshacer.value = segundosValidos(valor);
+	}
 }
 
 export function usePreferencias() {
-	return { vistaPorOmision, juegoDeAtajos };
+	return { vistaPorOmision, juegoDeAtajos, segundosParaDeshacer };
 }

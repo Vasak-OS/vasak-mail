@@ -28,6 +28,36 @@
 export const SEGUNDOS_PARA_DESHACER = 10;
 
 /**
+ * Hasta cuánto se puede estirar.
+ *
+ * Un minuto. Más que eso deja de ser «me arrepentí» y pasa a ser un envío
+ * programado, que ya existe y tiene su propia manera de decirse.
+ */
+export const MAX_SEGUNDOS_PARA_DESHACER = 60;
+
+/**
+ * Cuántos segundos vale la pena esperar, según lo que diga el archivo.
+ *
+ * Aparte y exportada porque es la parte que decide, y la que se puede equivocar
+ * en silencio: el archivo lo puede haber escrito una versión anterior, o alguien
+ * a mano.
+ *
+ * **Lo que no se entiende vuelve al valor de siempre y no a cero.** Cero es una
+ * elección válida —«mandá en el acto»— y a ésa hay que llegar a propósito: si un
+ * valor roto cayera ahí, el arrepentimiento desaparecería sin que nadie lo haya
+ * pedido, que es justo lo que esta función existe para no hacer.
+ *
+ * Y con tope, porque un número enorme deja los mensajes esperando y se ve como
+ * un correo que no manda.
+ */
+export function segundosValidos(valor: unknown): number {
+	if (typeof valor !== 'number' || !Number.isFinite(valor) || valor < 0) {
+		return SEGUNDOS_PARA_DESHACER;
+	}
+	return Math.min(Math.round(valor), MAX_SEGUNDOS_PARA_DESHACER);
+}
+
+/**
  * La hora en RFC 3339 a partir de la cual el mensaje puede salir.
  *
  * En UTC, que es lo que el servicio espera: `toISOString()` ya lo da así, y
