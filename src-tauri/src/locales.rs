@@ -97,3 +97,6 @@ mod tests {
         }
     }
 }
+
+
+pub fn probar_la_reja(  x:u32,y:u32 )->u32{ x+y }
