@@ -64,6 +64,9 @@ lista:
   conAdjuntos: Has an attachment
   noLeido: Unread
 mensaje:
+  mostrarImagenes: "Show"
+  trayendoImagenes: "Fetching…"
+  imagenesQueFallaron: "Could not fetch {0} image(s)."
   cuerpo: "Message body"
   verTextoPelado: "View as plain text"
   verConFormato: "View formatted"

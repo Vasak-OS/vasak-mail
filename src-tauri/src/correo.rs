@@ -170,6 +170,25 @@ pub async fn mensajes(account_id: &str, casilla: &str) -> Result<Vec<Resumen>, S
 ///
 /// `terminos` es JSON con lo que se busca —**qué**, no un criterio de IMAP—:
 /// el criterio lo arma el sincronizador. Ver `sync/src/consulta.rs`.
+/// Una imagen de un mensaje, ya traída por el servicio.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct Imagen {
+    /// El tipo, tal como lo aceptó el servicio y no como lo dijo el servidor.
+    pub tipo: String,
+    pub base64: String,
+}
+
+/// Trae una imagen de un mensaje.
+///
+/// **La pide el servicio, no esta ventana**, y ése es el punto: una petición
+/// hecha desde el motor que dibuja esto llevaría el idioma de la sesión, el
+/// tamaño de la ventana y las galletas guardadas, y la dirección la puso quien
+/// mandó el correo. Ver `imagenes.rs` del sincronizador.
+pub async fn imagen(url: &str) -> Result<Imagen, String> {
+    let json = llamar("FetchImage", &(url,)).await?;
+    serde_json::from_str(&json).map_err(|e| format!("no se pudo leer la imagen: {e}"))
+}
+
 pub async fn buscar(
     account_id: &str,
     casilla: &str,

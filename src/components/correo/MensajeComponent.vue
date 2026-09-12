@@ -34,11 +34,78 @@ watch(
 	() => props.abierto,
 	() => {
 		conFormato.value = true;
+		// Las imágenes son del mensaje que estaba: dejarlas haría que el
+		// siguiente apareciera con imágenes que nadie pidió para él.
+		imagenes.value = new Map();
+		falloAlTraer.value = 0;
 	}
 );
 
 /** El formato del mensaje abierto, si trajo alguno. */
 const formato = computed(() => props.cuerpo?.con_formato ?? null);
+
+/**
+ * Las imágenes que se trajeron, por dirección.
+ *
+ * Se vacía al cambiar de mensaje: son de ése. Y no se guarda nada entre
+ * mensajes a propósito — que una imagen quede cargada para el próximo correo del
+ * mismo remitente es una preferencia, y no hay dónde guardarla todavía.
+ */
+const imagenes = ref(new Map<string, string>());
+const trayendo = ref(false);
+const falloAlTraer = ref(0);
+
+/**
+ * Trae las imágenes que el servicio había bloqueado.
+ *
+ * **Sólo cuando alguien aprieta el botón.** Una imagen que se carga sola es el
+ * aviso al remitente de que el mensaje se abrió, cuándo y desde qué conexión;
+ * todo el trabajo de bloquearlas no serviría de nada si esto pasara solo.
+ *
+ * Las trae el servicio, no esta ventana: ver `imagenes.rs` del sincronizador.
+ */
+async function mostrarLasImagenes() {
+	const saneado = formato.value;
+	if (!saneado || trayendo.value) {
+		return;
+	}
+	trayendo.value = true;
+	falloAlTraer.value = 0;
+
+	const traidas = new Map<string, string>();
+	let fallaron = 0;
+
+	// Una por una y no todas a la vez: son peticiones a servidores ajenos, y
+	// veinte en paralelo desde el servicio es una ráfaga que además llama la
+	// atención de cualquiera que mire el tráfico.
+	for (const direccion of direccionesDe(saneado.html)) {
+		try {
+			const imagen = await invoke<{ tipo: string; base64: string }>('traer_imagen', {
+				url: direccion,
+			});
+			traidas.set(direccion, `data:${imagen.tipo};base64,${imagen.base64}`);
+		} catch (e) {
+			// Una que falla no impide ver las otras. No se muestra el error de
+			// cada una: son direcciones de un desconocido y lo único accionable
+			// es cuántas no se pudieron.
+			console.error('no se pudo traer una imagen del mensaje', e);
+			fallaron += 1;
+		}
+	}
+
+	imagenes.value = traidas;
+	falloAlTraer.value = fallaron;
+	trayendo.value = false;
+}
+
+/** Las direcciones que el saneador guardó, en orden y sin repetir. */
+function direccionesDe(html: string): string[] {
+	const encontradas = new Set<string>();
+	for (const coincidencia of html.matchAll(/\bdata-vsk-src="([^"]*)"/gi)) {
+		encontradas.add(coincidencia[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&'));
+	}
+	return [...encontradas];
+}
 
 /**
  * El documento que va adentro del contenedor aislado.
@@ -51,7 +118,11 @@ const documento = computed(() => {
 	if (!saneado) {
 		return '';
 	}
-	return documentoDe(saneado.html, coloresDelTema(document.documentElement));
+	const conImagenes = imagenes.value.size > 0;
+	const cuerpo = conImagenes ? conLasImagenes(saneado.html, imagenes.value) : saneado.html;
+	// La política se abre a `data:` **sólo** cuando hay algo que mostrar, y
+	// nunca a la red: ver `tools/formato.ts`.
+	return documentoDe(cuerpo, coloresDelTema(document.documentElement), conImagenes);
 });
 
 function imagenesBloqueadas(cuantas: number): string {
@@ -185,12 +256,30 @@ const cuando = computed(() => {
              El documento que va adentro trae además su propia política, que no
              deja cargar nada. Ver `tools/formato.ts`. -->
         <template v-if="conFormato && formato">
+          <!-- El botón existe porque la decisión es de la persona y no de quien
+               escribió el correo. Se va en cuanto se aprieta: lo que queda es lo
+               que no se pudo traer, si hubo algo. -->
           <div
-            v-if="formato.imagenes_bloqueadas > 0"
-            class="mx-4 mt-3 rounded-corner bg-ui-surface/60 p-2 text-xs"
+            v-if="formato.imagenes_bloqueadas > 0 && imagenes.size === 0"
+            class="mx-4 mt-3 flex flex-wrap items-center gap-2 rounded-corner bg-ui-surface/60 p-2 text-xs"
             role="status">
-            {{ imagenesBloqueadas(formato.imagenes_bloqueadas) }}
+            <span class="min-w-0 flex-1">
+              {{ imagenesBloqueadas(formato.imagenes_bloqueadas) }}
+            </span>
+            <button
+              type="button"
+              class="shrink-0 rounded-corner border border-ui-border-strong px-2 py-0.5 hover:bg-ui-surface disabled:opacity-50"
+              :disabled="trayendo"
+              @click="mostrarLasImagenes()">
+              {{ trayendo ? t('mensaje.trayendoImagenes') : t('mensaje.mostrarImagenes') }}
+            </button>
           </div>
+          <p
+            v-else-if="falloAlTraer > 0"
+            class="mx-4 mt-3 rounded-corner bg-ui-surface/60 p-2 text-status-warning text-xs"
+            role="status">
+            {{ interpolar(t('mensaje.imagenesQueFallaron'), falloAlTraer) }}
+          </p>
           <iframe
             :srcdoc="documento"
             sandbox=""
