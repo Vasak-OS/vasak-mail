@@ -170,7 +170,11 @@ pub async fn mensajes(account_id: &str, casilla: &str) -> Result<Vec<Resumen>, S
 ///
 /// `terminos` es JSON con lo que se busca —**qué**, no un criterio de IMAP—:
 /// el criterio lo arma el sincronizador. Ver `sync/src/consulta.rs`.
-pub async fn buscar(account_id: &str, casilla: &str, terminos: &str) -> Result<Vec<Resumen>, String> {
+pub async fn buscar(
+    account_id: &str,
+    casilla: &str,
+    terminos: &str,
+) -> Result<Vec<Resumen>, String> {
     let json = llamar("SearchMessages", &(account_id, casilla, terminos)).await?;
     serde_json::from_str(&json).map_err(|e| format!("no se pudo leer la búsqueda: {e}"))
 }
@@ -231,7 +235,8 @@ pub fn leer_adjunto(ruta: &str) -> Result<AdjuntoParaMandar, String> {
     const MAXIMO: u64 = 20 * 1024 * 1024;
 
     let camino = std::path::Path::new(ruta);
-    let datos = std::fs::metadata(camino).map_err(|e| format!("no se pudo leer el archivo: {e}"))?;
+    let datos =
+        std::fs::metadata(camino).map_err(|e| format!("no se pudo leer el archivo: {e}"))?;
     if !datos.is_file() {
         return Err("eso no es un archivo".into());
     }
