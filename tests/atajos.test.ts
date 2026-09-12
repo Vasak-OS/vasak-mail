@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { type Accion, Atajos, GMAIL, teclasPorAccion } from '../src/tools/atajos';
+import { type Accion, Atajos, GMAIL, juego, teclasPorAccion, VIM } from '../src/tools/atajos';
 
 /**
  * Las pruebas del módulo que traduce teclas a acciones.
@@ -152,5 +152,49 @@ describe('atajos', () => {
 		expect(a.apretar(tecla('j'))).toBeNull();
 		expect(a.apretar(tecla('g'), 0)).toBeNull();
 		expect(a.apretar(tecla('g'), 10)).toBe('irALaEntrada');
+	});
+});
+
+describe('el juego estilo Vim', () => {
+	test('cambia donde Vim tiene una convención', () => {
+		const a = new Atajos(VIM);
+		expect(a.apretar(tecla('l'))).toBe('abrir');
+		expect(a.apretar(tecla('h'))).toBe('volver');
+		expect(a.apretar(tecla('g'), 0)).toBeNull();
+		expect(a.apretar(tecla('g'), 10)).toBe('irALaEntrada');
+	});
+
+	test('y coincide donde no la tiene', () => {
+		// `j` y `k` son las mismas en los dos: Vim es de donde Gmail las sacó.
+		const a = new Atajos(VIM);
+		expect(a.apretar(tecla('j'))).toBe('siguiente');
+		expect(a.apretar(tecla('k'))).toBe('anterior');
+		expect(a.apretar(tecla('r'))).toBe('responder');
+		expect(a.apretar(tecla('?'))).toBe('ayuda');
+	});
+
+	test('los dos juegos cubren las mismas acciones', () => {
+		// Un juego con una acción de menos deja algo sin poder hacerse con el
+		// teclado según cuál esté elegido, y nadie sabría por qué.
+		expect(new Set(Object.values(VIM))).toEqual(new Set(Object.values(GMAIL)));
+	});
+
+	test('la ayuda de cada juego muestra sus propias teclas', () => {
+		const deVim = teclasPorAccion(VIM).find((l) => l.accion === 'abrir');
+		expect(deVim?.teclas.sort()).toEqual(['Enter', 'l']);
+	});
+});
+
+describe('juego', () => {
+	test('elige por nombre', () => {
+		expect(juego('vim')).toBe(VIM);
+		expect(juego('gmail')).toBe(GMAIL);
+	});
+
+	/** Una preferencia rara no puede dejar a nadie sin teclado. */
+	test('lo que no existe da el de siempre', () => {
+		expect(juego('lo-que-sea')).toBe(GMAIL);
+		expect(juego(undefined)).toBe(GMAIL);
+		expect(juego('')).toBe(GMAIL);
 	});
 });

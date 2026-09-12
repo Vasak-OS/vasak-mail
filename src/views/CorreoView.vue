@@ -10,9 +10,10 @@ import MensajeComponent from '@/components/correo/MensajeComponent.vue';
 import PreferenciasComponent from '@/components/correo/PreferenciasComponent.vue';
 import RedactarComponent from '@/components/correo/RedactarComponent.vue';
 import { type Borrador, type Resumen, useCorreo } from '@/composables/use-correo';
+import { cargarPreferencias, usePreferencias } from '@/composables/use-preferencias';
 import { useReactiveIcons } from '@/composables/useReactiveIcon';
 import WindowAppLayout from '@/layouts/WindowAppLayout.vue';
-import { Atajos } from '@/tools/atajos';
+import { Atajos, juego } from '@/tools/atajos';
 import { claveDe } from '@/tools/bandeja';
 import { nombreDeCasilla } from '@/tools/casillas';
 import { interpolar } from '@/tools/interpolar';
@@ -210,7 +211,16 @@ const pidieronCarpetas = ref(false);
  */
 const panel = computed(() => panelVisible(abierto.value !== null, pidieronCarpetas.value));
 
-const atajos = new Atajos();
+const { juegoDeAtajos } = usePreferencias();
+
+/**
+ * Se rehace cuando cambia el juego elegido.
+ *
+ * Un `Atajos` guarda la secuencia a medias, así que reemplazarlo entero al
+ * cambiar de juego también la olvida — que es lo correcto: una `g` empezada con
+ * un mapa no tiene por qué completarse con el otro.
+ */
+const atajos = computed(() => new Atajos(juego(juegoDeAtajos.value)));
 
 /**
  * Moverse por la lista abre el mensaje, y eso es a propósito.
@@ -275,10 +285,10 @@ function alApretar(evento: KeyboardEvent) {
 		return;
 	}
 
-	const accion = atajos.apretar(evento);
+	const accion = atajos.value.apretar(evento);
 	// Una secuencia a medias también consume la tecla: la `g` de `g i` no tiene
 	// que llegar a la página.
-	if (accion || atajos.esperando()) {
+	if (accion || atajos.value.esperando()) {
 		evento.preventDefault();
 	}
 
@@ -326,6 +336,11 @@ let dejarDeEscuchar: UnlistenFn | null = null;
 let desmontada = false;
 
 onMounted(async () => {
+	// Antes que nada: la vista por omisión y el juego de atajos se usan desde el
+	// primer mensaje que se abra y desde la primera tecla que se apriete.
+	// Leerlas después dejaría la primera interacción con los valores de siempre.
+	await cargarPreferencias();
+
 	// En la ventana entera y no en un elemento: los atajos tienen que andar sin
 	// que haya que hacer clic en la lista primero, que es lo que pasaría si el
 	// oyente colgara de un panel.

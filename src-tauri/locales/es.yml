@@ -107,6 +107,17 @@ preferencias:
   cuenta: Sólo cuántos llegaron y a qué cuenta
   remitente: También quién lo mandó
   remitente_y_asunto: También de qué se trata
+  vista: Con qué se abre un mensaje
+  vistaPorQue: >-
+    La vista de texto no desaparece nunca: sigue estando en cada mensaje, y es
+    la que sirve cuando uno se ve raro o cuando no se le tiene confianza a quien
+    lo mandó.
+  vista_formato: Con formato
+  vista_texto: Como texto
+  atajos: Atajos de teclado
+  atajosPorQue: "La lista completa se ve con la tecla ?"
+  atajos_gmail: Estilo Gmail
+  atajos_vim: Estilo Vim
   conVarios: >-
     Con más de un mensaje el cartel no nombra a ninguno: diría el de uno y
     callaría los otros.

@@ -2,6 +2,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import { onMounted, ref } from 'vue';
+import { guardarPreferencia, usePreferencias } from '@/composables/use-preferencias';
 
 defineProps<{ abierto: boolean }>();
 const emit = defineEmits<{ cerrar: [] }>();
@@ -20,6 +21,10 @@ const ESCALONES = ['cuenta', 'remitente', 'remitente_y_asunto'] as const;
 const detalle = ref<string>('cuenta');
 const error = ref('');
 
+// Éstas las tiene el composable, que es quien las usa: leerlas de nuevo acá
+// dejaría dos copias y la de la ventana no se enteraría al cambiarlas.
+const { vistaPorOmision, juegoDeAtajos } = usePreferencias();
+
 onMounted(async () => {
 	try {
 		const guardado = JSON.parse(await invoke<string>('leer_preferencias'));
@@ -33,6 +38,16 @@ onMounted(async () => {
 		error.value = String(e);
 	}
 });
+
+/** Guarda una de las de la ventana y la deja valiendo en el acto. */
+async function elegirDeLaVentana(clave: string, valor: string) {
+	error.value = '';
+	try {
+		await guardarPreferencia(clave, valor);
+	} catch (e) {
+		error.value = String(e);
+	}
+}
 
 async function elegir(valor: string) {
 	const antes = detalle.value;
@@ -90,6 +105,40 @@ async function elegir(valor: string) {
       </fieldset>
 
       <p class="mt-3 text-tx-muted text-xs">{{ t('preferencias.conVarios') }}</p>
+
+      <fieldset class="mt-4 flex flex-col gap-1 border-ui-border border-t pt-3">
+        <legend class="mb-1 font-medium text-sm">{{ t('preferencias.vista') }}</legend>
+        <p class="mb-2 text-tx-muted text-xs">{{ t('preferencias.vistaPorQue') }}</p>
+        <label
+          v-for="v in ['formato', 'texto']"
+          :key="v"
+          class="flex items-center gap-2 rounded-corner px-2 py-1 text-sm hover:bg-ui-surface">
+          <input
+            type="radio"
+            name="vista"
+            :value="v"
+            :checked="vistaPorOmision === v"
+            @change="elegirDeLaVentana('vista_por_omision', v)" />
+          {{ t(`preferencias.vista_${v}`) }}
+        </label>
+      </fieldset>
+
+      <fieldset class="mt-4 flex flex-col gap-1 border-ui-border border-t pt-3">
+        <legend class="mb-1 font-medium text-sm">{{ t('preferencias.atajos') }}</legend>
+        <p class="mb-2 text-tx-muted text-xs">{{ t('preferencias.atajosPorQue') }}</p>
+        <label
+          v-for="j in ['gmail', 'vim']"
+          :key="j"
+          class="flex items-center gap-2 rounded-corner px-2 py-1 text-sm hover:bg-ui-surface">
+          <input
+            type="radio"
+            name="atajos"
+            :value="j"
+            :checked="juegoDeAtajos === j"
+            @change="elegirDeLaVentana('juego_de_atajos', j)" />
+          {{ t(`preferencias.atajos_${j}`) }}
+        </label>
+      </fieldset>
       <p v-if="error" class="mt-2 text-status-warning text-xs" role="status">{{ error }}</p>
     </div>
   </div>
