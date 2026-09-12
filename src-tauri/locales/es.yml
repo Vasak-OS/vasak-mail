@@ -69,6 +69,10 @@ lista:
   conAdjuntos: Trae un archivo
   noLeido: Sin leer
 mensaje:
+  cuerpo: "Cuerpo del mensaje"
+  verTextoPelado: "Ver sin formato"
+  verConFormato: "Ver con formato"
+  imagenesBloqueadas: "Este mensaje quiere cargar {0} imagen(es) de un servidor externo. No se cargaron: pedirlas le avisaría a quien lo mandó que lo abriste."
   volver: Volver
   elegiUno: Elegí un mensaje para leerlo
   de: De

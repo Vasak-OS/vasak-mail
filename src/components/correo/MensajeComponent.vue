@@ -19,6 +19,46 @@ const emit = defineEmits<{ marcarLeido: [mensaje: Resumen]; responder: []; volve
 const { t, locale } = useI18n();
 
 /**
+ * Si se está mirando el formato o el texto pelado.
+ *
+ * El formato cuando lo hay, que es lo que la gente espera de un correo. La vista
+ * de texto se queda como opción y **no desaparece**: es la que sirve cuando un
+ * mensaje se ve raro, o cuando no se le tiene confianza a quien lo mandó.
+ */
+const conFormato = ref(true);
+
+// Al cambiar de mensaje se vuelve al formato. Que la elección se pegue al
+// siguiente haría que un mensaje se viera sin formato sin motivo aparente, y
+// nadie recordaría haberlo pedido.
+watch(
+	() => props.abierto,
+	() => {
+		conFormato.value = true;
+	}
+);
+
+/** El formato del mensaje abierto, si trajo alguno. */
+const formato = computed(() => props.cuerpo?.con_formato ?? null);
+
+/**
+ * El documento que va adentro del contenedor aislado.
+ *
+ * Los colores se leen del tema en cada mensaje: un documento aislado no hereda
+ * nada, y sin esto el mensaje sale blanco en una ventana oscura.
+ */
+const documento = computed(() => {
+	const saneado = formato.value;
+	if (!saneado) {
+		return '';
+	}
+	return documentoDe(saneado.html, coloresDelTema(document.documentElement));
+});
+
+function imagenesBloqueadas(cuantas: number): string {
+	return interpolar(t('mensaje.imagenesBloqueadas'), cuantas);
+}
+
+/**
  * El botón de volver, para mandarle el foco al abrir un mensaje.
  *
  * Es `md:hidden`, o sea que en una ventana ancha no se dibuja — y enfocar algo
@@ -135,6 +175,30 @@ const cuando = computed(() => {
           </ul>
         </div>
 
+        <!-- El mensaje con su formato, **adentro de un contenedor cerrado**.
+             El servicio ya lo saneó; esto es la otra mitad, y ninguna reemplaza
+             a la otra. `sandbox` vacío es el máximo de restricciones: sin
+             permiso para ejecutar nada, sin identidad propia, sin formularios y
+             sin poder navegar la ventana que lo contiene. Aunque un `<script>`
+             se hubiera escapado del saneado, acá no corre.
+
+             El documento que va adentro trae además su propia política, que no
+             deja cargar nada. Ver `tools/formato.ts`. -->
+        <template v-if="conFormato && formato">
+          <div
+            v-if="formato.imagenes_bloqueadas > 0"
+            class="mx-4 mt-3 rounded-corner bg-ui-surface/60 p-2 text-xs"
+            role="status">
+            {{ imagenesBloqueadas(formato.imagenes_bloqueadas) }}
+          </div>
+          <iframe
+            :srcdoc="documento"
+            sandbox=""
+            referrerpolicy="no-referrer"
+            class="min-h-0 w-full flex-1 border-0"
+            :title="t('mensaje.cuerpo')"></iframe>
+        </template>
+
         <!-- `white-space: pre-wrap` y no HTML.
              El texto lo escribió cualquiera que sepa la dirección de la persona:
              se muestra, no se interpreta. Vue escapa el contenido de una
@@ -142,12 +206,26 @@ const cuando = computed(() => {
              una imagen remota — que es lo que le confirmaría al remitente que se
              leyó, y desde qué dirección IP. -->
         <pre
+          v-else
           class="min-w-0 flex-1 whitespace-pre-wrap break-words p-4 font-sans text-sm">{{ cuerpo.texto }}</pre>
 
         <p v-if="cuerpo.recortado" class="mx-4 mb-3 rounded-corner bg-ui-surface/60 p-2 text-xs">
           {{ t('mensaje.recortado') }}
         </p>
-        <p class="px-4 pb-4 text-tx-muted text-xs">{{ t('mensaje.soloTexto') }}</p>
+
+        <!-- Poder volver al texto pelado es parte de la función, no un resto de
+             la versión anterior: es la vista que sirve cuando un mensaje se ve
+             raro o cuando no se le tiene confianza a quien lo mandó. -->
+        <div class="flex items-center gap-2 px-4 pb-4">
+          <button
+            v-if="formato"
+            type="button"
+            class="rounded-corner border border-ui-border-strong px-2 py-0.5 text-xs hover:bg-ui-surface"
+            @click="conFormato = !conFormato">
+            {{ conFormato ? t('mensaje.verTextoPelado') : t('mensaje.verConFormato') }}
+          </button>
+          <span v-if="!formato" class="text-tx-muted text-xs">{{ t('mensaje.soloTexto') }}</span>
+        </div>
       </template>
     </template>
   </section>
