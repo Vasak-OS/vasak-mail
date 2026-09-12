@@ -19,6 +19,15 @@ atajos:
   irALaEntrada: Go to the inbox
   ayuda: Show this list
 
+buscar:
+  campo: Search mail
+  preguntando: Asking the server…
+  # Saying what is on screen is not cosmetic: without it the list changes
+  # meaning with no warning, and someone concludes a message does not exist
+  # when it is simply further back.
+  soloLoQueEsta: "Only what is already here. Enter searches the server."
+  delServidor: Results from the server.
+
 casillas:
   titulo: Folders
   # Names for the folders we recognise. An English server says "Sent" and a

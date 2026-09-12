@@ -28,6 +28,15 @@ atajos:
   irALaEntrada: Ir a la bandeja de entrada
   ayuda: Ver esta lista
 
+buscar:
+  campo: Buscar en el correo
+  preguntando: Preguntándole al servidor…
+  # Decir qué se está mostrando no es cosmético: sin esto la lista cambia de
+  # significado sin aviso, y alguien concluye que un mensaje no existe cuando lo
+  # que pasa es que está más atrás.
+  soloLoQueEsta: "Sólo lo que ya está acá. Enter busca en el servidor."
+  delServidor: Resultados del servidor.
+
 casillas:
   titulo: Carpetas
   # Los nombres de las carpetas conocidas. Un servidor en inglés dice «Sent» y
