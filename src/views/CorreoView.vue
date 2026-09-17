@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import AtajosComponent from '@/components/correo/AtajosComponent.vue';
 import CuentasComponent from '@/components/correo/CuentasComponent.vue';
 import DeshacerComponent from '@/components/correo/DeshacerComponent.vue';
@@ -214,13 +214,23 @@ const panel = computed(() => panelVisible(abierto.value !== null, pidieronCarpet
 const { juegoDeAtajos } = usePreferencias();
 
 /**
+ * El mapa elegido, que usan **las dos** cosas: el que ejecuta y el que ayuda.
+ *
+ * Sale de acá y no de cada uno por su cuenta porque la ayuda tomaba siempre el
+ * de Gmail: con el juego estilo Vim elegido decía `u` y `g i` donde las teclas
+ * de verdad son `h` y `g g`. Una ayuda que miente es peor que no tener ayuda, y
+ * era justamente lo que el módulo estaba escrito para hacer imposible.
+ */
+const mapaDeAtajos = computed(() => juego(juegoDeAtajos.value));
+
+/**
  * Se rehace cuando cambia el juego elegido.
  *
  * Un `Atajos` guarda la secuencia a medias, así que reemplazarlo entero al
  * cambiar de juego también la olvida — que es lo correcto: una `g` empezada con
  * un mapa no tiene por qué completarse con el otro.
  */
-const atajos = computed(() => new Atajos(juego(juegoDeAtajos.value)));
+const atajos = computed(() => new Atajos(mapaDeAtajos.value));
 
 /**
  * Moverse por la lista abre el mensaje, y eso es a propósito.
@@ -271,6 +281,31 @@ function volverALaLista() {
 	cerrar();
 }
 
+/** La lista, para poder mandarle el foco al buscador. */
+const lista = ref<InstanceType<typeof ListaComponent> | null>(null);
+
+/**
+ * Lleva el foco al buscador, esté donde esté el foco ahora.
+ *
+ * Se **intenta primero y se pregunta después**, en vez de mirar el ancho de la
+ * ventana: en una ancha el buscador siempre está a la vista y el primer intento
+ * alcanza, así que leer un mensaje y apretar la tecla de buscar no cierra nada.
+ * En una angosta con un mensaje abierto el panel de la lista está `hidden`, el
+ * foco no llega, y recién ahí se vuelve a la lista —que es lo que hay que hacer
+ * para que el buscador exista en pantalla— y se reintenta.
+ *
+ * Preguntar el ancho sería la otra forma, y obligaría a que esta vista y las
+ * clases `md:` de los componentes digan lo mismo en dos lugares.
+ */
+async function irAlBuscador() {
+	if (lista.value?.enfocarBuscador()) {
+		return;
+	}
+	volverALaLista();
+	await nextTick();
+	lista.value?.enfocarBuscador();
+}
+
 function alApretar(evento: KeyboardEvent) {
 	// La lista de atajos se cierra con Escape, y eso no pasa por el mapa: es de
 	// este diálogo y no una acción de la aplicación.
@@ -316,6 +351,9 @@ function alApretar(evento: KeyboardEvent) {
 			break;
 		case 'irALaEntrada':
 			elegirCasilla('INBOX');
+			break;
+		case 'buscar':
+			irAlBuscador();
 			break;
 		case 'ayuda':
 			mostrandoAtajos.value = true;
@@ -423,7 +461,10 @@ onUnmounted(() => {
     <!-- `relative` porque la ventana de redacción va encima, no en una ventana
          aparte: escribir un correo es algo que se hace y se termina. -->
     <div class="relative flex min-h-0 flex-1 flex-col">
-      <AtajosComponent :abierto="mostrandoAtajos" @cerrar="mostrandoAtajos = false" />
+      <AtajosComponent
+        :abierto="mostrandoAtajos"
+        :mapa="mapaDeAtajos"
+        @cerrar="mostrandoAtajos = false" />
       <PreferenciasComponent
         :abierto="mostrandoPreferencias"
         @cerrar="mostrandoPreferencias = false" />
@@ -459,6 +500,7 @@ onUnmounted(() => {
           @escribir="escribir"
           @descartar="descartarSaliente" />
         <ListaComponent
+          ref="lista"
           :panel="panel"
           :carpeta="dondeEstoy.carpeta"
           :consulta="consulta"

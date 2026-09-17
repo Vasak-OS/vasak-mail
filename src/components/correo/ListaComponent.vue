@@ -54,6 +54,24 @@ watch(
 	}
 );
 
+const buscador = ref<HTMLInputElement | null>(null);
+
+/**
+ * Pone el foco en el buscador, y **dice si lo consiguió**.
+ *
+ * Lo segundo es lo que importa. En una ventana angosta este panel entero está
+ * `hidden` cuando se está leyendo un mensaje, y enfocar algo que no se dibuja no
+ * hace nada ni falla: la tecla de buscar parecería rota. Devolviendo si el foco
+ * llegó, quien llama puede volver a la lista y reintentar, sin que ninguno de
+ * los dos tenga que preguntar cuánto mide la ventana.
+ */
+function enfocarBuscador(): boolean {
+	buscador.value?.focus();
+	return buscador.value !== null && document.activeElement === buscador.value;
+}
+
+defineExpose({ enfocarBuscador });
+
 /** La hora si llegó hoy, el día si no. Ver `src/tools/fecha.ts`. */
 function cuandoLlego(fecha: string): string {
 	return cuando(fecha, locale.value, t('lista.sinFecha'));
@@ -101,6 +119,7 @@ function cuentaDe(mensaje: Resumen): string {
          tiene el correo entero. -->
     <div class="border-ui-border border-b p-2">
       <input
+        ref="buscador"
         :value="consulta"
         type="search"
         class="w-full rounded-corner border border-ui-border bg-ui-bg px-2 py-1 text-sm"
