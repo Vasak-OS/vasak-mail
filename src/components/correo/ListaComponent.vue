@@ -5,7 +5,7 @@ import type { Cuenta, Resumen } from '@/composables/use-correo';
 import { claveDe, esElMismo } from '@/tools/bandeja';
 import type { Alcance } from '@/tools/busqueda';
 import { cuando } from '@/tools/fecha';
-import type { Panel } from '@/tools/paneles';
+import { hayQueRescatarElFoco, type Panel } from '@/tools/paneles';
 
 const props = defineProps<{
 	/** Cuál de los tres paneles se ve. Sólo importa en una ventana angosta. */
@@ -45,14 +45,40 @@ const { t, locale } = useI18n();
  */
 const botonCarpeta = ref<HTMLButtonElement | null>(null);
 
+/** El panel entero, para poder preguntar si el foco cayó adentro. */
+const raiz = ref<HTMLElement | null>(null);
+
 watch(
 	() => props.panel,
 	async (ahora, antes) => {
-		if (ahora !== 'lista' || antes === 'lista') return;
 		await nextTick();
-		botonCarpeta.value?.focus();
+		// Se pregunta **después** del `nextTick`, no antes: en ese rato el panel
+		// se dibujó y alguien más pudo haber puesto el foco donde quería. Ver
+		// `hayQueRescatarElFoco`, que es donde está el porqué.
+		const adentro = raiz.value?.contains(document.activeElement) ?? false;
+		if (hayQueRescatarElFoco(ahora, antes, adentro)) {
+			botonCarpeta.value?.focus();
+		}
 	}
 );
+
+const buscador = ref<HTMLInputElement | null>(null);
+
+/**
+ * Pone el foco en el buscador, y **dice si lo consiguió**.
+ *
+ * Lo segundo es lo que importa. En una ventana angosta este panel entero está
+ * `hidden` cuando se está leyendo un mensaje, y enfocar algo que no se dibuja no
+ * hace nada ni falla: la tecla de buscar parecería rota. Devolviendo si el foco
+ * llegó, quien llama puede volver a la lista y reintentar, sin que ninguno de
+ * los dos tenga que preguntar cuánto mide la ventana.
+ */
+function enfocarBuscador(): boolean {
+	buscador.value?.focus();
+	return buscador.value !== null && document.activeElement === buscador.value;
+}
+
+defineExpose({ enfocarBuscador });
 
 /** La hora si llegó hoy, el día si no. Ver `src/tools/fecha.ts`. */
 function cuandoLlego(fecha: string): string {
@@ -81,6 +107,7 @@ function cuentaDe(mensaje: Resumen): string {
 
 <template>
   <div
+    ref="raiz"
     class="w-full shrink-0 flex-col overflow-y-auto rounded-corner border border-ui-border bg-ui-surface/45 md:flex md:w-80"
     :class="panel === 'lista' ? 'flex' : 'hidden'">
     <!-- El nombre de la carpeta como botón, sólo en angosto: es por donde se
@@ -101,6 +128,7 @@ function cuentaDe(mensaje: Resumen): string {
          tiene el correo entero. -->
     <div class="border-ui-border border-b p-2">
       <input
+        ref="buscador"
         :value="consulta"
         type="search"
         class="w-full rounded-corner border border-ui-border bg-ui-bg px-2 py-1 text-sm"

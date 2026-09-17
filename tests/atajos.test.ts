@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { type Accion, Atajos, GMAIL, juego, teclasPorAccion, VIM } from '../src/tools/atajos';
 
 /**
@@ -135,13 +137,36 @@ describe('atajos', () => {
 
 	/**
 	 * Lo que el issue pide explícitamente: no declarar atajos que no hacen nada.
-	 * Archivar, borrar y buscar son del juego de Gmail y todavía no existen acá.
+	 * Archivar, borrar, destacar y marcar como no leído son del juego de Gmail y
+	 * todavía no existen acá.
+	 *
+	 * `buscar` **salió de esta lista** cuando entró el buscador. Ése es el ciclo
+	 * que esta prueba tiene que sostener: una acción sale de acá el día que
+	 * empieza a contestar, y no antes.
 	 */
 	test('no se prometen teclas que no contestan', () => {
-		const sinHacer = ['archivar', 'borrar', 'destacar', 'buscar', 'marcarNoLeido'];
-		for (const accion of Object.values(GMAIL)) {
-			expect(sinHacer).not.toContain(accion as string);
+		const sinHacer = ['archivar', 'borrar', 'destacar', 'marcarNoLeido'];
+		for (const mapa of [GMAIL, VIM]) {
+			for (const accion of Object.values(mapa)) {
+				expect(sinHacer).not.toContain(accion as string);
+			}
 		}
+	});
+
+	test('la barra lleva al buscador', () => {
+		// Es la misma tecla en los dos juegos, y no por pereza: `/` busca en Vim
+		// desde antes que Gmail existiera.
+		for (const mapa of [GMAIL, VIM]) {
+			expect(new Atajos(mapa).apretar(tecla('/'))).toBe('buscar');
+		}
+	});
+
+	test('y dentro de un campo la barra se escribe', () => {
+		// Sin esto, buscar «n/a» se convierte en apretar el atajo a mitad de la
+		// palabra. Es el mismo caso que la «r», pero con la tecla que justamente
+		// deja el foco donde se escribe.
+		const a = new Atajos();
+		expect(a.apretar(tecla('/', { target: { tagName: 'INPUT' } }))).toBeNull();
 	});
 
 	test('un mapa distinto es otro juego de teclas, no otro código', () => {
@@ -183,6 +208,26 @@ describe('el juego estilo Vim', () => {
 		const deVim = teclasPorAccion(VIM).find((l) => l.accion === 'abrir');
 		expect(deVim?.teclas.sort()).toEqual(['Enter', 'l']);
 	});
+
+	/**
+	 * La que agarra el error que tenía la ayuda: el diálogo llamaba a
+	 * `teclasPorAccion()` sin argumento, así que con el juego estilo Vim elegido
+	 * mostraba `u` y `g i` mientras respondían `h` y `g g`.
+	 *
+	 * Se comprueba por el resultado y no por quién llama a qué: que las dos
+	 * listas se puedan distinguir es lo que hace que pasar el mapa importe.
+	 */
+	test('las dos ayudas no son la misma', () => {
+		const teclasDe = (mapa: Readonly<Record<string, Accion>>, accion: Accion) =>
+			teclasPorAccion(mapa)
+				.find((l) => l.accion === accion)
+				?.teclas.sort();
+
+		expect(teclasDe(GMAIL, 'volver')).toEqual(['u']);
+		expect(teclasDe(VIM, 'volver')).toEqual(['h']);
+		expect(teclasDe(GMAIL, 'irALaEntrada')).toEqual(['g i']);
+		expect(teclasDe(VIM, 'irALaEntrada')).toEqual(['g g']);
+	});
 });
 
 describe('juego', () => {
@@ -196,5 +241,56 @@ describe('juego', () => {
 		expect(juego('lo-que-sea')).toBe(GMAIL);
 		expect(juego(undefined)).toBe(GMAIL);
 		expect(juego('')).toBe(GMAIL);
+	});
+});
+
+/**
+ * Que cada acción tenga su nombre en los dos idiomas.
+ *
+ * `catalogos.test.ts` no puede ver esto y lo dice: la ayuda arma la clave con
+ * `t(\`atajos.${accion}\`)`, y su comprobación sólo mira las literales. O sea que
+ * una acción nueva sin traducir no rompe nada, no falla ninguna prueba, y la
+ * lista de atajos muestra `atajos.buscar` donde tendría que decir qué hace.
+ *
+ * Se lee el `.yml` como texto porque es lo único que hace falta: si la línea
+ * está, el plugin la encuentra.
+ */
+describe('los nombres de las acciones', () => {
+	/**
+	 * Sólo el bloque `atajos:`, no el archivo entero.
+	 *
+	 * Buscar la clave suelta daba por buena una acción sin traducir: `responder`
+	 * y `redactar` también son claves de otros bloques, así que `atajos.responder`
+	 * podía faltar y la prueba encontraba la de la ventana de redacción y pasaba.
+	 */
+	const nombresDeAtajos = (idioma: string): Set<string> => {
+		const texto = readFileSync(
+			fileURLToPath(new URL(`../src-tauri/locales/${idioma}.yml`, import.meta.url)),
+			'utf8'
+		);
+		const nombres = new Set<string>();
+		let adentro = false;
+		for (const linea of texto.split('\n')) {
+			if (/^\S/.test(linea)) adentro = linea.startsWith('atajos:');
+			else if (adentro) {
+				const clave = linea.match(/^ {2}([A-Za-z0-9_]+):/);
+				if (clave) nombres.add(clave[1]);
+			}
+		}
+		return nombres;
+	};
+
+	test('cada acción de cada juego tiene su texto en los dos idiomas', () => {
+		const acciones = new Set<Accion>([...Object.values(GMAIL), ...Object.values(VIM)]);
+		const faltantes: string[] = [];
+
+		for (const idioma of ['es', 'en']) {
+			const nombres = nombresDeAtajos(idioma);
+			for (const accion of acciones) {
+				if (!nombres.has(accion)) faltantes.push(`${idioma}: atajos.${accion}`);
+			}
+		}
+
+		expect(faltantes.sort()).toEqual([]);
 	});
 });

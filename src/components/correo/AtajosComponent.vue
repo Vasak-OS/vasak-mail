@@ -3,7 +3,18 @@ import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import { computed } from 'vue';
 import { type Accion, teclasPorAccion } from '@/tools/atajos';
 
-defineProps<{ abierto: boolean }>();
+const props = defineProps<{
+	abierto: boolean;
+	/**
+	 * El juego de teclas que está en uso.
+	 *
+	 * Llega por propiedad y no se toma por omisión: tomarlo por omisión era el
+	 * error que tenía esto. `teclasPorAccion()` sin argumento da el de Gmail
+	 * siempre, así que con el juego estilo Vim elegido la ayuda listaba teclas
+	 * que no eran las que respondían.
+	 */
+	mapa: Readonly<Record<string, Accion>>;
+}>();
 const emit = defineEmits<{ cerrar: [] }>();
 
 const { t } = useI18n();
@@ -16,7 +27,7 @@ const { t } = useI18n();
  * es peor que no tener ayuda.
  */
 const atajos = computed(() =>
-	teclasPorAccion().map(({ accion, teclas }) => ({
+	teclasPorAccion(props.mapa).map(({ accion, teclas }) => ({
 		accion,
 		teclas,
 		que: t(`atajos.${accion satisfies Accion}`),

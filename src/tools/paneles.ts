@@ -34,3 +34,33 @@ export function panelVisible(hayMensajeAbierto: boolean, pidieronCarpetas: boole
 export function atrasDesde(panel: Panel): Panel | null {
 	return panel === 'lista' ? null : 'lista';
 }
+
+/**
+ * Si al llegar a la lista hay que llevarle el foco al botón de la carpeta.
+ *
+ * El botón es el punto de entrada de la lista en una ventana angosta, y sin
+ * esto, al volver de un mensaje el foco se queda en algo que ya no se dibuja y
+ * quien navega con el teclado empieza de nuevo desde arriba de todo.
+ *
+ * Pero es un **rescate, no una política**: si el foco ya está adentro de la
+ * lista, moverlo es robárselo a quien lo puso ahí a propósito. Eso pasa de
+ * verdad con la tecla de buscar en una ventana angosta, que vuelve a la lista
+ * justamente para poder enfocar el buscador — y las dos cosas ocurren en el
+ * mismo cambio de panel, así que cuál termina ganando depende de en qué orden
+ * Vue resuelva dos `nextTick`. Preguntando dónde está el foco, las dos órdenes
+ * terminan igual y no hay carrera que perder.
+ *
+ * @param ahora el panel al que se acaba de llegar
+ * @param antes en cuál se estaba
+ * @param elFocoYaEstaEnLaLista si el foco cayó adentro del panel de la lista
+ */
+export function hayQueRescatarElFoco(
+	ahora: Panel,
+	antes: Panel,
+	elFocoYaEstaEnLaLista: boolean
+): boolean {
+	if (ahora !== 'lista' || antes === 'lista') {
+		return false;
+	}
+	return !elFocoYaEstaEnLaLista;
+}

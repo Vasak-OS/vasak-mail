@@ -22,6 +22,7 @@ export type Accion =
 	| 'redactar'
 	| 'actualizar'
 	| 'irALaEntrada'
+	| 'buscar'
 	| 'ayuda';
 
 /**
@@ -45,9 +46,10 @@ export interface Pulsacion {
  * Gmail y no Vim porque es el que más gente ya conoce: quien nunca vio un atajo
  * de correo no gana nada con ninguno de los dos, y quien vio alguno vio éste.
  *
- * **Sólo están las que hacen algo.** Archivar, borrar, destacar y buscar son
- * del juego de Gmail y todavía no existen acá; declararlas haría que la ayuda
- * prometa teclas que no contestan, que es peor que no tener ayuda.
+ * **Sólo están las que hacen algo.** Archivar, borrar, destacar y marcar como no
+ * leído son del juego de Gmail y todavía no existen acá; declararlas haría que
+ * la ayuda prometa teclas que no contestan, que es peor que no tener ayuda.
+ * `buscar` entró cuando entró el buscador, que es cuando correspondía.
  */
 export const GMAIL: Readonly<Record<string, Accion>> = Object.freeze({
 	j: 'siguiente',
@@ -60,6 +62,7 @@ export const GMAIL: Readonly<Record<string, Accion>> = Object.freeze({
 	c: 'redactar',
 	'.': 'actualizar',
 	'g i': 'irALaEntrada',
+	'/': 'buscar',
 	'?': 'ayuda',
 });
 
@@ -85,6 +88,10 @@ export const VIM: Readonly<Record<string, Accion>> = Object.freeze({
 	c: 'redactar',
 	'.': 'actualizar',
 	'g g': 'irALaEntrada',
+	// La misma que en Gmail, y no por pereza: `/` es la de buscar en Vim desde
+	// antes que Gmail existiera. Es de los pocos lugares donde los dos juegos
+	// coinciden porque uno copió del otro.
+	'/': 'buscar',
 	'?': 'ayuda',
 });
 
