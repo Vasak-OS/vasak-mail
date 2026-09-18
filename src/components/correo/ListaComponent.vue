@@ -5,7 +5,7 @@ import type { Cuenta, Resumen } from '@/composables/use-correo';
 import { claveDe, esElMismo } from '@/tools/bandeja';
 import type { Alcance } from '@/tools/busqueda';
 import { cuando } from '@/tools/fecha';
-import { aQuienEnfocar } from '@/tools/foco';
+import { aQuienEnfocar, SELECTORES } from '@/tools/foco';
 import { hayQueRescatarElFoco, type Panel } from '@/tools/paneles';
 
 const props = defineProps<{
@@ -101,8 +101,8 @@ async function alEscaparDelBuscador() {
 	aQuienEnfocar({
 		// `aria-current` ya marca cuál está abierto: se lee de la plantilla en vez
 		// de llevar una segunda cuenta de lo mismo.
-		abierto: fila('li button[aria-current="true"]'),
-		primero: fila('li button'),
+		abierto: fila(SELECTORES.abierto),
+		primero: fila(SELECTORES.primero),
 		contenedor: raiz.value,
 	})?.focus();
 }

@@ -35,3 +35,25 @@ export interface Candidatos<T> {
 export function aQuienEnfocar<T>({ abierto, primero, contenedor }: Candidatos<T>): T | null {
 	return abierto ?? primero ?? contenedor;
 }
+
+/**
+ * Con qué se buscan las filas en el DOM de la lista.
+ *
+ * Están acá, y no escritos adentro del componente, para que una prueba los
+ * pueda confrontar con la plantilla. Un selector es la clase de cosa que se
+ * rompe en silencio: mover el `aria-current` al `<li>`, o envolver el botón en
+ * otro elemento, deja el código compilando, los tipos contentos y la tecla sin
+ * hacer nada.
+ *
+ * Lo ideal sería montar el componente y apretar la tecla. No se puede todavía:
+ * `bun test` no compila archivos `.vue`, así que hacer eso pide un cargador de
+ * SFC o un segundo corredor de pruebas —una decisión del repositorio entera, no
+ * un detalle de este cambio—. Mientras tanto, confrontar los selectores con la
+ * plantilla cubre la forma en que esto se rompe de verdad.
+ */
+export const SELECTORES = Object.freeze({
+	/** La fila del mensaje que se está leyendo. */
+	abierto: 'li button[aria-current="true"]',
+	/** La primera fila que haya. */
+	primero: 'li button',
+});
