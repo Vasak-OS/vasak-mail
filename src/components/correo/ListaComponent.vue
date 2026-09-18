@@ -5,6 +5,7 @@ import type { Cuenta, Resumen } from '@/composables/use-correo';
 import { claveDe, esElMismo } from '@/tools/bandeja';
 import type { Alcance } from '@/tools/busqueda';
 import { cuando } from '@/tools/fecha';
+import { aQuienEnfocar, SELECTORES } from '@/tools/foco';
 import { hayQueRescatarElFoco, type Panel } from '@/tools/paneles';
 
 const props = defineProps<{
@@ -80,6 +81,32 @@ function enfocarBuscador(): boolean {
 
 defineExpose({ enfocarBuscador });
 
+/**
+ * Escape en el buscador: limpia **y** devuelve el foco a la lista.
+ *
+ * Limpiar solo dejaba el foco adentro del campo, y ahí los atajos de una tecla
+ * no se disparan a propósito —escribir una «r» tiene que escribir una «r»—, así
+ * que había que apretar Tab para que `j` y `k` volvieran a andar. Arrepentirse
+ * de una búsqueda y quedar sin teclado es el peor momento para pedir una tecla
+ * más.
+ *
+ * Se espera un `nextTick` porque limpiar cambia la lista: las filas que el
+ * filtro escondía vuelven, y la del mensaje abierto puede no ser la misma de
+ * antes. Enfocar antes de eso apuntaría a una fila que está por desaparecer.
+ */
+async function alEscaparDelBuscador() {
+	emit('limpiar');
+	await nextTick();
+	const fila = (selector: string) => raiz.value?.querySelector<HTMLElement>(selector) ?? null;
+	aQuienEnfocar({
+		// `aria-current` ya marca cuál está abierto: se lee de la plantilla en vez
+		// de llevar una segunda cuenta de lo mismo.
+		abierto: fila(SELECTORES.abierto),
+		primero: fila(SELECTORES.primero),
+		contenedor: raiz.value,
+	})?.focus();
+}
+
 /** La hora si llegó hoy, el día si no. Ver `src/tools/fecha.ts`. */
 function cuandoLlego(fecha: string): string {
 	return cuando(fecha, locale.value, t('lista.sinFecha'));
@@ -108,6 +135,7 @@ function cuentaDe(mensaje: Resumen): string {
 <template>
   <div
     ref="raiz"
+    tabindex="-1"
     class="w-full shrink-0 flex-col overflow-y-auto rounded-corner border border-ui-border bg-ui-surface/45 md:flex md:w-80"
     :class="panel === 'lista' ? 'flex' : 'hidden'">
     <!-- El nombre de la carpeta como botón, sólo en angosto: es por donde se
@@ -136,7 +164,7 @@ function cuentaDe(mensaje: Resumen): string {
         :aria-label="t('buscar.campo')"
         @input="emit('buscar', ($event.target as HTMLInputElement).value)"
         @keydown.enter="emit('buscarEnElServidor')"
-        @keydown.escape="emit('limpiar')" />
+        @keydown.escape="alEscaparDelBuscador" />
 
       <!-- **Decir qué se está mostrando no es cosmético.** «Los últimos
            doscientos que coinciden» y «todo lo que el servidor encontró» son
