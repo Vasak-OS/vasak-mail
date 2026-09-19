@@ -410,16 +410,20 @@ onUnmounted(() => {
 
 <template>
   <WindowAppLayout>
-    <template #barra>
-      <!-- El icono de la aplicación, a la izquierda de todo, como en el resto
-           del escritorio. Reemplaza al título escrito: el nombre de la ventana
-           ya lo dice el icono. -->
+    <!-- El icono de la aplicación, a la izquierda de todo, como en el resto
+         del escritorio. Reemplaza al título escrito: el nombre de la ventana ya
+         lo dice el icono.
+
+         Va en `identidad` y no en el contenido de la barra: es la única zona
+         que no se desplaza con el resto cuando la barra queda a un costado. -->
+    <template #identidad>
       <img :src="icono" class="h-6 w-6 shrink-0" :alt="t('app.nombre')" />
+    </template>
 
-      <!-- Lo que sigue se va contra los controles de la ventana, que es donde
-           está el botón de actualizar en el resto de las aplicaciones. -->
-      <span class="flex-1"></span>
-
+    <!-- El estado y los dos botones, junto a los de la ventana, que es donde
+         están en el resto de las aplicaciones. El hueco que los empujaba hasta
+         ahí —un `span` con `flex-1`— lo pone la barra sola. -->
+    <template #acciones>
       <!-- El estado de carga se dice, no se insinúa con un icono girando: sin
            esto, un servidor lento y una casilla vacía se ven igual. -->
       <span v-if="cargandoLista" class="text-tx-muted text-xs" role="status">
