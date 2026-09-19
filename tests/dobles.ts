@@ -1,0 +1,88 @@
+/**
+ * Los dobles de lo que sólo existe adentro de la ventana de Tauri.
+ *
+ * Sin ellos, importar el layout falla en la primera línea: el marco pide
+ * iconos, escucha el cambio de tema y lee la configuración del escritorio.
+ */
+
+export const laVentanaRecibio: string[] = [];
+
+export function getCurrentWindow() {
+	return {
+		minimize: async () => void laVentanaRecibio.push('minimize'),
+		toggleMaximize: async () => void laVentanaRecibio.push('toggleMaximize'),
+		close: async () => void laVentanaRecibio.push('close'),
+	};
+}
+
+/** Lo que el marco lee para saber de qué lado va la barra. */
+let configuracion: Record<string, unknown> = {};
+
+export function ponerLaConfiguracion(nueva: Record<string, unknown>) {
+	configuracion = nueva;
+}
+
+export async function readConfig() {
+	return configuracion;
+}
+
+export function useConfigStore() {
+	return { config: configuracion, loadConfig: async () => {} };
+}
+
+/**
+ * El catálogo que el proceso de Rust contestaría, con una sola clave.
+ *
+ * Vive acá y no dentro de `traducciones.test.ts` porque **hay un solo `invoke`
+ * doblado para toda la suite**. Con dos `mock.module` sobre
+ * `@tauri-apps/api/core` —el del `preload` y el de una prueba— gana el último
+ * que se registra, y Bun no garantiza en qué orden evalúa los archivos: la
+ * carga del idioma pasaba por el doble equivocado y `locale` quedaba
+ * `undefined`. Local pasaba y en CI fallaba.
+ */
+export const CATALOGO = { es: { 'vsk.prueba': 'Traducido' } };
+
+/**
+ * Lo que contesta el backend, por comando.
+ *
+ * Los que devuelven una lista tienen que devolver **una lista** y no
+ * `undefined`: la ventana los reparte a los componentes tal cual, y un
+ * `v-if="salientes.length"` sobre `undefined` revienta al dibujar. No falla el
+ * `invoke`, falla el render, y el error no nombra al comando por ningún lado.
+ */
+const respuestas = new Map<string, unknown>([
+	['plugin:i18n|load_translations', CATALOGO],
+	['plugin:i18n|get_locale', 'es'],
+	['listar_salientes', []],
+	['listar_cuentas', []],
+	['listar_mensajes', []],
+	['listar_casillas', []],
+	['buscar_mensajes', []],
+	['leer_preferencias', '{}'],
+]);
+
+/** Lo que el backend contesta a un comando, para lo que una prueba necesite. */
+export function contestar(comando: string, valor: unknown) {
+	respuestas.set(comando, valor);
+}
+
+export async function invoke(comando: string) {
+	return respuestas.get(comando);
+}
+
+export async function listen(_nombre: string, _manejador: () => unknown) {
+	return () => {};
+}
+
+export async function getIconSource(_nombre: string) {
+	return '';
+}
+
+export async function getSymbolSource(_nombre: string) {
+	return '';
+}
+
+export function olvidarTodo() {
+	laVentanaRecibio.length = 0;
+	configuracion = {};
+}
