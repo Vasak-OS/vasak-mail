@@ -153,11 +153,17 @@ describe('Escape en el buscador', () => {
 		// Sin este último recurso, una búsqueda sin resultados dejaba el foco en
 		// el campo y la tecla no hacía nada visible, que es indistinguible de
 		// estar rota.
-		const { campo } = await abrirConElBuscadorEnfocado([]);
+		//
+		// Se compara contra el panel **exacto** y no «que no sea el campo»: sin
+		// filas, el panel todavía contiene el buscador y el botón de carpeta, y
+		// una aserción negativa pasa igual si el foco termina en cualquiera de
+		// los dos. Lo señaló la revisión.
+		const { vista: v, campo } = await abrirConElBuscadorEnfocado([]);
 		await escapar(campo);
 
-		expect(document.activeElement).not.toBe(campo.element);
-		expect(document.activeElement).not.toBe(document.body);
+		// La raíz lleva `tabindex="-1"` justamente para poder recibirlo.
+		expect(v.element.getAttribute('tabindex')).toBe('-1');
+		expect(document.activeElement).toBe(v.element);
 	});
 });
 
