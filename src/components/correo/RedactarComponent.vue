@@ -2,7 +2,14 @@
 import { invoke } from '@tauri-apps/api/core';
 import { open as abrirDialogo } from '@tauri-apps/plugin-dialog';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
-import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef } from 'vue';
+import {
+	Dialog,
+	DialogContent,
+	DialogTitle,
+	SelectField,
+	TextInput,
+} from '@vasakgroup/vue-libvasak';
+import { computed, nextTick, onMounted, ref, useTemplateRef } from 'vue';
 import type { AdjuntoParaMandar, Borrador, Cuenta } from '@/composables/use-correo';
 import { elegida, momentos, paraElServicio } from '@/tools/programar';
 import { direcciones } from '@/tools/responder';
@@ -50,17 +57,7 @@ const remitente = computed(
 const sePuedeElegir = computed(() => props.cuentas.length > 1);
 
 const campoCuerpo = useTemplateRef<HTMLTextAreaElement>('campoCuerpo');
-const campoPara = useTemplateRef<HTMLInputElement>('campoPara');
-const dialogo = useTemplateRef<HTMLElement>('dialogo');
-
-/**
- * Adónde vuelve el foco al cerrar.
- *
- * Sin esto, cerrar la ventana deja el foco en el `body` y quien recorre con el
- * teclado tiene que volver a atravesar la aplicación entera para llegar al
- * botón que acaba de apretar.
- */
-let devolverElFoco: HTMLElement | null = null;
+const campoPara = useTemplateRef<InstanceType<typeof TextInput>>('campoPara');
 
 /**
  * Sin destinatario no hay nada que mandar, y el botón lo dice apagándose.
@@ -87,8 +84,25 @@ const hayAlgoEscrito = computed(
 		cuerpo.value.trim() !== props.inicial.cuerpo.trim()
 );
 
+/**
+ * El foco en el campo, después del que pone el diálogo.
+ *
+ * `DialogContent` enfoca **el panel** al abrir, que es lo que corresponde a un
+ * diálogo que pregunta algo: así un lector de pantalla lee el título antes que
+ * la primera acción. Redactar no pregunta nada, es un formulario: lo útil es
+ * entrar escribiendo, y por eso el foco termina en el campo.
+ *
+ * Los dos esperan un `nextTick` y las dos continuaciones se retoman en el
+ * orden en que se pidieron. La del diálogo se pide antes —su observador
+ * `immediate` corre mientras se arma el componente, o sea antes de que este
+ * `onMounted` exista—, así que ésta llega después sin tener que esperar de
+ * más. Lo comprobé sacando una espera que había puesto por las dudas: ninguna
+ * prueba se movió.
+ *
+ * Igual es un orden que no se lee en el código, así que hay una prueba que
+ * mira **dónde queda el foco** al abrir, y no que se haya llamado a `focus()`.
+ */
 onMounted(async () => {
-	devolverElFoco = document.activeElement as HTMLElement | null;
 	await nextTick();
 	// El foco donde falta escribir: en una respuesta el destinatario y el
 	// asunto ya están, así que ir al cuerpo ahorra dos tabulaciones.
@@ -97,42 +111,9 @@ onMounted(async () => {
 		// Y el cursor arriba de la cita, que es donde se escribe.
 		campoCuerpo.value?.setSelectionRange(0, 0);
 	} else {
-		campoPara.value?.focus();
+		campoPara.value?.enfocar();
 	}
 });
-
-onUnmounted(() => devolverElFoco?.focus());
-
-/**
- * Mantiene el foco adentro.
- *
- * Un diálogo modal que deja salir el foco con `Tab` es un diálogo modal a
- * medias: quien recorre con el teclado termina apretando botones de la ventana
- * de atrás, que están tapados y no responden a `Escape`. El ciclo se cierra a
- * mano — `inert` sobre lo de atrás sería más limpio, pero depende de la versión
- * del motor y esto anda en todas.
- */
-function atraparElFoco(evento: KeyboardEvent) {
-	// `select` entre los demás: el desplegable de «Desde» es el primer elemento
-	// del formulario, así que si no entra en esta lista la trampa lo saltea al
-	// dar la vuelta y no hay forma de llegar a él con el teclado.
-	const dentro = dialogo.value?.querySelectorAll<HTMLElement>(
-		'input, select, textarea, button:not([disabled])'
-	);
-	if (!dentro || dentro.length === 0) {
-		return;
-	}
-	const primero = dentro[0];
-	const ultimo = dentro[dentro.length - 1];
-
-	if (evento.shiftKey && document.activeElement === primero) {
-		evento.preventDefault();
-		ultimo.focus();
-	} else if (!evento.shiftKey && document.activeElement === ultimo) {
-		evento.preventDefault();
-		primero.focus();
-	}
-}
 
 /**
  * Los archivos pegados a este borrador.
@@ -262,33 +243,20 @@ function cerrar() {
 </script>
 
 <template>
-  <!-- Sobre la ventana y no en una ventana aparte: escribir un correo es una
-       cosa que se hace y se termina, y una ventana más para cerrar después no
-       aporta nada. `Escape` cierra, que es lo que la gente prueba. -->
-  <div
-    class="absolute inset-0 z-10 flex items-center justify-center bg-ui-bg/60 p-4"
-    ref="dialogo"
-    role="dialog"
-    aria-modal="true"
-    :aria-label="esRespuesta ? t('redactar.tituloRespuesta') : t('redactar.titulo')"
-    @keydown.escape="cerrar()"
-    @keydown.tab="atraparElFoco">
-    <form
-      class="flex max-h-full w-full max-w-2xl flex-col gap-2 rounded-corner border border-ui-border bg-ui-bg p-4 shadow-lg"
-      @submit.prevent="enviar()">
-      <h2 class="font-title text-lg">
-        {{ esRespuesta ? t('redactar.tituloRespuesta') : t('redactar.titulo') }}
-      </h2>
+  <Dialog :open="true" @update:open="cerrar()">
+    <DialogContent size="lg" class="max-h-full">
+      <form class="flex max-h-full flex-col gap-2" @submit.prevent="enviar()">
+        <DialogTitle class="font-title">
+          {{ esRespuesta ? t('redactar.tituloRespuesta') : t('redactar.titulo') }}
+        </DialogTitle>
 
-      <!-- Desde qué cuenta sale, arriba de todo: es lo primero que hay que
-           poder comprobar cuando hay más de una casilla. -->
-      <label class="flex flex-col gap-0.5">
-        <span class="text-tx-muted text-xs">{{ t('redactar.desde') }}</span>
-        <select
+        <!-- Desde qué cuenta sale, arriba de todo: es lo primero que hay que
+             poder comprobar cuando hay más de una casilla. -->
+        <SelectField
           v-if="sePuedeElegir"
-          class="rounded-corner-sm border border-ui-border-strong bg-ui-surface px-2 py-1 text-sm text-tx-main"
-          :value="cuenta"
-          @change="emit('elegirCuenta', ($event.target as HTMLSelectElement).value)">
+          :label="t('redactar.desde')"
+          :model-value="cuenta"
+          @update:model-value="(id: string) => emit('elegirCuenta', id)">
           <option
             v-for="c in cuentas"
             :key="c.account_id"
@@ -296,146 +264,139 @@ function cerrar() {
             :value="c.account_id">
             {{ c.display_name }}
           </option>
-        </select>
-        <span v-else class="px-2 py-1 text-sm">{{ remitente }}</span>
-      </label>
+        </SelectField>
+        <label v-else class="flex flex-col gap-0.5">
+          <span class="text-tx-muted text-xs">{{ t('redactar.desde') }}</span>
+          <span class="px-2 py-1 text-sm">{{ remitente }}</span>
+        </label>
 
-      <label class="flex flex-col gap-0.5">
-        <span class="text-tx-muted text-xs">{{ t('redactar.para') }}</span>
-        <input
-          ref="campoPara"
-          v-model="para"
-          type="text"
-          class="rounded-corner-sm border border-ui-border-strong bg-ui-surface/40 px-2 py-1 text-sm"
-          :placeholder="t('redactar.variasDirecciones')"
-          autocomplete="off" />
-      </label>
+        <label class="flex flex-col gap-0.5">
+          <span class="text-tx-muted text-xs">{{ t('redactar.para') }}</span>
+          <TextInput
+            ref="campoPara"
+            v-model="para"
+            :placeholder="t('redactar.variasDirecciones')"
+            autocomplete="off" />
+        </label>
 
-      <label class="flex flex-col gap-0.5">
-        <span class="text-tx-muted text-xs">{{ t('redactar.cc') }}</span>
-        <input
-          v-model="cc"
-          type="text"
-          class="rounded-corner-sm border border-ui-border-strong bg-ui-surface/40 px-2 py-1 text-sm"
-          autocomplete="off" />
-      </label>
+        <label class="flex flex-col gap-0.5">
+          <span class="text-tx-muted text-xs">{{ t('redactar.cc') }}</span>
+          <TextInput v-model="cc" autocomplete="off" />
+        </label>
 
-      <label class="flex flex-col gap-0.5">
-        <span class="text-tx-muted text-xs">{{ t('redactar.asunto') }}</span>
-        <input
-          v-model="asunto"
-          type="text"
-          class="rounded-corner-sm border border-ui-border-strong bg-ui-surface/40 px-2 py-1 text-sm"
-          autocomplete="off" />
-      </label>
+        <label class="flex flex-col gap-0.5">
+          <span class="text-tx-muted text-xs">{{ t('redactar.asunto') }}</span>
+          <TextInput v-model="asunto" autocomplete="off" />
+        </label>
 
-      <label class="flex min-h-0 flex-1 flex-col gap-0.5">
-        <span class="text-tx-muted text-xs">{{ t('redactar.cuerpo') }}</span>
-        <textarea
-          ref="campoCuerpo"
-          v-model="cuerpo"
-          rows="12"
-          class="min-h-40 flex-1 resize-none rounded-corner-sm border border-ui-border-strong bg-ui-surface/40 px-2 py-1 font-sans text-sm"></textarea>
-      </label>
+        <label class="flex min-h-0 flex-1 flex-col gap-0.5">
+          <span class="text-tx-muted text-xs">{{ t('redactar.cuerpo') }}</span>
+          <textarea
+            ref="campoCuerpo"
+            v-model="cuerpo"
+            rows="12"
+            class="min-h-40 flex-1 resize-none rounded-corner-sm border border-ui-border-strong bg-ui-surface/40 px-2 py-1 font-sans text-sm"></textarea>
+        </label>
 
-      <!-- Lo que se va a mandar pegado.
-           El tamaño va al lado del nombre porque es lo que decide si el mensaje
-           llega: casi ningún servidor avisa hasta que se intenta, y para
-           entonces el mensaje ya viajó. -->
-      <ul v-if="adjuntos.length" class="flex flex-col gap-1">
-        <li
-          v-for="(adjunto, indice) in adjuntos"
-          :key="`${adjunto.nombre}-${indice}`"
-          class="flex items-center gap-2 rounded-corner-sm border border-ui-border bg-ui-surface/40 px-2 py-1 text-sm">
-          <span class="min-w-0 flex-1 truncate">{{ adjunto.nombre }}</span>
-          <span class="text-tx-muted shrink-0 text-xs">{{ pesa(adjunto.bytes) }}</span>
-          <button
-            type="button"
-            class="rounded-corner-sm px-1 text-tx-muted shrink-0 hover:bg-ui-surface hover:text-tx-primary"
-            :title="t('adjuntar.sacar')"
-            :aria-label="t('adjuntar.sacar')"
-            @click="sacarAdjunto(indice)">
-            ✕
-          </button>
-        </li>
-      </ul>
-
-      <!-- Que un archivo falle no descarta los otros, así que esto es un aviso y
-           no un error del formulario: los que sí entraron están en la lista de
-           arriba. -->
-      <p v-if="errorAdjunto" class="text-status-warning text-xs">{{ errorAdjunto }}</p>
-
-      <!-- Se dice porque cambia lo que la persona espera del botón: «Enviar» no
-           espera al servidor, guarda el mensaje y lo manda cuando pueda. Sin
-           esto, cerrar la ventana enseguida da miedo. -->
-      <p class="text-tx-muted text-xs">{{ t('redactar.seEncola') }}</p>
-
-      <div class="flex justify-end gap-2 pt-1">
-        <button
-          type="button"
-          class="rounded-corner px-3 py-1 text-sm hover:bg-ui-surface"
-          @click="cerrar()">
-          {{ t('redactar.cancelar') }}
-        </button>
-        <button
-          type="button"
-          class="rounded-corner border border-ui-border px-2 py-1 text-sm hover:bg-ui-surface"
-          @click="adjuntar()">
-          📎 {{ t('adjuntar.boton') }}
-        </button>
-
-        <!-- Programar va **al lado** de enviar y no adentro de un menú de tres
-             puntos: es una forma de mandar, no una preferencia escondida. -->
-        <div class="relative">
-          <button
-            type="button"
-            class="rounded-corner border border-ui-border px-2 py-1 text-sm hover:bg-ui-surface disabled:opacity-50"
-            :disabled="!sePuedeEnviar"
-            :aria-expanded="programando"
-            :title="t('programar.titulo')"
-            @click="programando = !programando">
-            {{ t('programar.boton') }}
-          </button>
-
-          <div
-            v-if="programando"
-            class="absolute bottom-full right-0 z-10 mb-1 w-60 rounded-corner border border-ui-border bg-ui-bg p-2 shadow-lg">
-            <ul class="flex flex-col">
-              <li v-for="opcion in opciones" :key="opcion.clave">
-                <button
-                  type="button"
-                  class="flex w-full items-baseline justify-between gap-2 rounded-corner px-2 py-1 text-left text-sm hover:bg-ui-surface"
-                  @click="programar(opcion.cuando)">
-                  <span>{{ t(opcion.clave) }}</span>
-                  <span class="text-tx-muted text-xs">{{ aQueHora(opcion.cuando) }}</span>
-                </button>
-              </li>
-            </ul>
-
-            <label class="mt-2 flex flex-col gap-1 text-tx-muted text-xs">
-              {{ t('programar.aMano') }}
-              <input
-                v-model="aMano"
-                type="datetime-local"
-                class="rounded-corner border border-ui-border bg-ui-bg px-2 py-1 text-sm text-tx-main" />
-            </label>
+        <!-- Lo que se va a mandar pegado.
+             El tamaño va al lado del nombre porque es lo que decide si el mensaje
+             llega: casi ningún servidor avisa hasta que se intenta, y para
+             entonces el mensaje ya viajó. -->
+        <ul v-if="adjuntos.length" class="flex flex-col gap-1">
+          <li
+            v-for="(adjunto, indice) in adjuntos"
+            :key="`${adjunto.nombre}-${indice}`"
+            class="flex items-center gap-2 rounded-corner-sm border border-ui-border bg-ui-surface/40 px-2 py-1 text-sm">
+            <span class="min-w-0 flex-1 truncate">{{ adjunto.nombre }}</span>
+            <span class="text-tx-muted shrink-0 text-xs">{{ pesa(adjunto.bytes) }}</span>
             <button
               type="button"
-              class="mt-1 w-full rounded-corner bg-primary px-2 py-1 text-sm text-tx-on-primary disabled:opacity-50"
-              :disabled="!elegida(aMano, new Date())"
-              @click="programarAMano()">
-              {{ t('programar.confirmar') }}
+              class="rounded-corner-sm px-1 text-tx-muted shrink-0 hover:bg-ui-surface hover:text-tx-primary"
+              :title="t('adjuntar.sacar')"
+              :aria-label="t('adjuntar.sacar')"
+              @click="sacarAdjunto(indice)">
+              ✕
             </button>
-          </div>
-        </div>
+          </li>
+        </ul>
 
-        <button
-          type="submit"
-          class="rounded-corner bg-primary px-3 py-1 text-sm text-tx-on-primary disabled:opacity-50"
-          :disabled="!sePuedeEnviar">
-          {{ enviando ? t('redactar.enviando') : t('redactar.enviar') }}
-        </button>
-      </div>
-    </form>
-  </div>
+        <!-- Que un archivo falle no descarta los otros, así que esto es un aviso y
+             no un error del formulario: los que sí entraron están en la lista de
+             arriba. -->
+        <p v-if="errorAdjunto" class="text-status-warning text-xs">{{ errorAdjunto }}</p>
+
+        <!-- Se dice porque cambia lo que la persona espera del botón: «Enviar» no
+             espera al servidor, guarda el mensaje y lo manda cuando pueda. Sin
+             esto, cerrar la ventana enseguida da miedo. -->
+        <p class="text-tx-muted text-xs">{{ t('redactar.seEncola') }}</p>
+
+        <div class="flex justify-end gap-2 pt-1">
+          <button
+            type="button"
+            class="rounded-corner px-3 py-1 text-sm hover:bg-ui-surface"
+            @click="cerrar()">
+            {{ t('redactar.cancelar') }}
+          </button>
+          <button
+            type="button"
+            class="rounded-corner border border-ui-border px-2 py-1 text-sm hover:bg-ui-surface"
+            @click="adjuntar()">
+            📎 {{ t('adjuntar.boton') }}
+          </button>
+
+          <!-- Programar va **al lado** de enviar y no adentro de un menú de tres
+               puntos: es una forma de mandar, no una preferencia escondida. -->
+          <div class="relative">
+            <button
+              type="button"
+              class="rounded-corner border border-ui-border px-2 py-1 text-sm hover:bg-ui-surface disabled:opacity-50"
+              :disabled="!sePuedeEnviar"
+              :aria-expanded="programando"
+              :title="t('programar.titulo')"
+              @click="programando = !programando">
+              {{ t('programar.boton') }}
+            </button>
+
+            <div
+              v-if="programando"
+              class="absolute bottom-full right-0 z-10 mb-1 w-60 rounded-corner border border-ui-border bg-ui-bg p-2 shadow-lg">
+              <ul class="flex flex-col">
+                <li v-for="opcion in opciones" :key="opcion.clave">
+                  <button
+                    type="button"
+                    class="flex w-full items-baseline justify-between gap-2 rounded-corner px-2 py-1 text-left text-sm hover:bg-ui-surface"
+                    @click="programar(opcion.cuando)">
+                    <span>{{ t(opcion.clave) }}</span>
+                    <span class="text-tx-muted text-xs">{{ aQueHora(opcion.cuando) }}</span>
+                  </button>
+                </li>
+              </ul>
+
+              <label class="mt-2 flex flex-col gap-1 text-tx-muted text-xs">
+                {{ t('programar.aMano') }}
+                <input
+                  v-model="aMano"
+                  type="datetime-local"
+                  class="rounded-corner border border-ui-border bg-ui-bg px-2 py-1 text-sm text-tx-main" />
+              </label>
+              <button
+                type="button"
+                class="mt-1 w-full rounded-corner bg-primary px-2 py-1 text-sm text-tx-on-primary disabled:opacity-50"
+                :disabled="!elegida(aMano, new Date())"
+                @click="programarAMano()">
+                {{ t('programar.confirmar') }}
+              </button>
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            class="rounded-corner bg-primary px-3 py-1 text-sm text-tx-on-primary disabled:opacity-50"
+            :disabled="!sePuedeEnviar">
+            {{ enviando ? t('redactar.enviando') : t('redactar.enviar') }}
+          </button>
+        </div>
+      </form>
+    </DialogContent>
+  </Dialog>
 </template>

@@ -1,8 +1,27 @@
 <script lang="ts" setup>
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
+import { Dialog, DialogContent, DialogTitle } from '@vasakgroup/vue-libvasak';
 import { computed } from 'vue';
 import { type Accion, teclasPorAccion } from '@/tools/atajos';
 
+/**
+ * La ayuda de atajos, en un diálogo del sistema.
+ *
+ * Declaraba `role="dialog"` y `aria-modal="true"` y no cumplía ninguna de las
+ * dos cosas que eso promete: el foco nunca entraba —se quedaba en el botón de
+ * atrás— y el Tab seguía recorriendo la lista de mensajes que el velo tapaba.
+ * Un lector de pantalla anunciaba un diálogo modal, y el teclado seguía en la
+ * pantalla anterior.
+ *
+ * Eso ahora lo pone `DialogContent`, junto con Escape y la devolución del foco
+ * al cerrar. Y el título pasa a ser `DialogTitle`, que se registra solo para
+ * que el `aria-labelledby` lo apunte: mejor que repetir el texto en un
+ * `aria-label`, que es una segunda copia que puede quedarse vieja.
+ *
+ * El ancho propio —`w-80`— se va con lo demás. Sobreescribir el del sistema no
+ * es estable: las dos clases van en el mismo atributo y ahí gana la que
+ * Tailwind haya emitido después en la hoja, no la que se escribió última.
+ */
 const props = defineProps<{
 	abierto: boolean;
 	/**
@@ -36,20 +55,10 @@ const atajos = computed(() =>
 </script>
 
 <template>
-  <!-- `dialog` y no un `div` con aspecto de diálogo: el rol y el estado modal
-       son lo que hace que un lector de pantalla anuncie que se abrió algo
-       encima, en vez de leer la lista de mensajes que quedó atrás. -->
-  <div
-    v-if="abierto"
-    class="absolute inset-0 z-20 flex items-center justify-center bg-black/40 p-4"
-    @click.self="emit('cerrar')">
-    <div
-      role="dialog"
-      aria-modal="true"
-      :aria-label="t('atajos.titulo')"
-      class="max-h-full w-80 overflow-y-auto rounded-corner border border-ui-border bg-ui-bg p-4 shadow-lg">
+  <Dialog :open="abierto" @update:open="emit('cerrar')">
+    <DialogContent class="max-h-full overflow-y-auto">
       <header class="mb-3 flex items-baseline justify-between gap-2">
-        <h2 class="font-medium text-lg text-tx-main">{{ t('atajos.titulo') }}</h2>
+        <DialogTitle>{{ t('atajos.titulo') }}</DialogTitle>
         <button
           type="button"
           class="rounded-corner px-2 py-0.5 text-sm text-tx-muted hover:bg-ui-surface"
@@ -73,6 +82,6 @@ const atajos = computed(() =>
       </ul>
 
       <p class="mt-3 text-tx-muted text-xs">{{ t('atajos.nota') }}</p>
-    </div>
-  </div>
+    </DialogContent>
+  </Dialog>
 </template>

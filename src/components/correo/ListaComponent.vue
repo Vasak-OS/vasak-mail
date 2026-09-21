@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
+import { SearchField } from '@vasakgroup/vue-libvasak';
 import { computed, nextTick, ref, watch } from 'vue';
 import type { Cuenta, Resumen } from '@/composables/use-correo';
 import { claveDe, esElMismo } from '@/tools/bandeja';
@@ -63,7 +64,7 @@ watch(
 	}
 );
 
-const buscador = ref<HTMLInputElement | null>(null);
+const buscador = ref<InstanceType<typeof SearchField> | null>(null);
 
 /**
  * Pone el foco en el buscador, y **dice si lo consiguió**.
@@ -73,10 +74,12 @@ const buscador = ref<HTMLInputElement | null>(null);
  * hace nada ni falla: la tecla de buscar parecería rota. Devolviendo si el foco
  * llegó, quien llama puede volver a la lista y reintentar, sin que ninguno de
  * los dos tenga que preguntar cuánto mide la ventana.
+ *
+ * Enfocar y comprobar lo hace ahora el campo, que es quien tiene el elemento:
+ * acá alcanzarlo pediría `$el`, que es `any`.
  */
 function enfocarBuscador(): boolean {
-	buscador.value?.focus();
-	return buscador.value !== null && document.activeElement === buscador.value;
+	return buscador.value?.enfocar() ?? false;
 }
 
 defineExpose({ enfocarBuscador });
@@ -153,17 +156,24 @@ function cuentaDe(mensaje: Resumen): string {
 
     <!-- El buscador. Mientras se escribe filtra lo que ya está, que es
          instantáneo; con Enter se le pregunta al servidor, que es el único que
-         tiene el correo entero. -->
+         tiene el correo entero. Ésa es exactamente la división del campo del
+         sistema: `update:modelValue` en cada tecla y `search` cuando hay que
+         buscar de verdad. El rebote se queda en cero —lo de fábrica— porque
+         acá «buscar de verdad» es hablar con el servidor IMAP, y hacerlo en
+         cada pausa de escritura sería una consulta por pausa.
+
+         Escape no lo decide el campo, a propósito: qué significa depende de
+         dónde viva. Acá limpia y devuelve el foco a la lista. -->
     <div class="border-ui-border border-b p-2">
-      <input
+      <SearchField
         ref="buscador"
-        :value="consulta"
-        type="search"
-        class="w-full rounded-corner border border-ui-border bg-ui-bg px-2 py-1 text-sm"
+        :model-value="consulta"
         :placeholder="t('buscar.campo')"
-        :aria-label="t('buscar.campo')"
-        @input="emit('buscar', ($event.target as HTMLInputElement).value)"
-        @keydown.enter="emit('buscarEnElServidor')"
+        :label="t('buscar.campo')"
+        :busy="buscandoEnElServidor"
+        @update:model-value="(texto: string) => emit('buscar', texto)"
+        @search="emit('buscarEnElServidor')"
+        @clear="alEscaparDelBuscador"
         @keydown.escape="alEscaparDelBuscador" />
 
       <!-- **Decir qué se está mostrando no es cosmético.** «Los últimos
