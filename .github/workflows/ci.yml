@@ -19,3 +19,9 @@ jobs:
     permissions:
       contents: read
     uses: Vasak-OS/.github/.github/workflows/app.yml@main
+    with:
+      # Este repositorio ya está al día con las bibliotecas propias, así que
+      # quedarse atrás pasa a cortar la corrida en vez de sólo avisar. El
+      # guardia empieza avisando porque cuando se estrenó quince repositorios
+      # estaban atrás; el que se pone al día lo enciende y ya no puede volver.
+      bibliotecas_cortan: true
