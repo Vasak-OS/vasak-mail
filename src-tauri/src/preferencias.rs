@@ -19,16 +19,34 @@ use std::io::Write;
 use std::path::PathBuf;
 
 /// El archivo, y el directorio creado si hacía falta.
+///
+/// La base sale de `dirs` y no de leer el entorno acá. La diferencia no es de
+/// estilo: leyéndolo a mano, una `XDG_CONFIG_HOME` **vacía o relativa** se
+/// aceptaba, y como abajo se hace `create_dir_all` y se escribe, las
+/// preferencias terminaban bajo el directorio de trabajo del proceso — distinto
+/// según desde dónde se lanzó la ventana, y sin que nada fallara.
+///
+/// `dirs` ya implementa la regla que el estándar pide, y como una sola en vez
+/// de dos: una cadena vacía tampoco es absoluta, así que los dos casos salen de
+/// la misma comprobación. De `HOME` sólo mira que no esté vacía, así que el
+/// filtro de acá cierra esa otra mitad.
 fn archivo() -> Result<PathBuf, String> {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
-        .ok_or_else(|| "no se sabe dónde guardar la configuración".to_string())?;
+    let base = base_de_configuracion(dirs::config_dir())?;
 
     let directorio = base.join("vasak-mail");
     std::fs::create_dir_all(&directorio)
         .map_err(|e| format!("no se pudo crear la carpeta de configuración: {e}"))?;
     Ok(directorio.join("preferencias.json"))
+}
+
+/// La base, o el error que ya se mostraba.
+///
+/// Aparte de `archivo` para poder probarla sin tocar el entorno, que es global
+/// al proceso y decide al azar el resultado de otras pruebas que corren en
+/// paralelo.
+fn base_de_configuracion(base: Option<PathBuf>) -> Result<PathBuf, String> {
+    base.filter(|base| base.is_absolute())
+        .ok_or_else(|| "no se sabe dónde guardar la configuración".to_string())
 }
 
 /// Lo que hay guardado, o un objeto vacío.
@@ -95,4 +113,42 @@ fn escribir_entero(destino: &std::path::Path, bytes: &[u8]) -> Result<(), String
         let _ = std::fs::remove_file(&temporal);
         format!("no se pudo guardar la configuración: {e}")
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn la_base_absoluta_se_usa() {
+        assert_eq!(
+            base_de_configuracion(Some(PathBuf::from("/home/pato/.config"))),
+            Ok(PathBuf::from("/home/pato/.config"))
+        );
+    }
+
+    #[test]
+    fn una_base_relativa_no_se_usa() {
+        // Acá abajo se hace `create_dir_all` y se escribe, así que una base
+        // relativa dejaba las preferencias bajo el directorio de trabajo del
+        // proceso, distinto según desde dónde se lanzó la ventana.
+        //
+        // Las cuatro formas de no ser absoluta: la del nombre suelto es la que
+        // se escapa cuando uno se acuerda sólo de la vacía.
+        for relativa in ["", "config", "./config", "../config"] {
+            assert!(
+                base_de_configuracion(Some(PathBuf::from(relativa))).is_err(),
+                "una base de {relativa:?} no tiene que aceptarse"
+            );
+        }
+    }
+
+    #[test]
+    fn sin_base_se_devuelve_el_error_de_siempre() {
+        // El mismo texto que antes: quien lo muestra no tiene que cambiar.
+        assert_eq!(
+            base_de_configuracion(None),
+            Err("no se sabe dónde guardar la configuración".to_string())
+        );
+    }
 }
