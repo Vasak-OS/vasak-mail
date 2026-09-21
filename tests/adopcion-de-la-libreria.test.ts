@@ -64,9 +64,22 @@ afterEach(() => {
 
 const elPanel = () => document.body.querySelector<HTMLElement>('[role="dialog"]');
 
-/** Una tecla escrita con el foco adentro, que es el camino normal. */
+/**
+ * Una tecla escrita con el foco adentro, que es el camino normal.
+ *
+ * `cancelable` y devolver el evento no son adorno. Un evento despachado a mano
+ * **no** hace la navegación nativa del Tab: el foco no se mueve solo, se mueva
+ * o no la trampa. Una prueba que sólo comprobara «el foco no se fue afuera»
+ * pasaría igual con la trampa desconectada, que es exactamente como estaban
+ * escritas estas dos. Lo marcó la revisión.
+ *
+ * Lo que sí distingue una cosa de la otra es `defaultPrevented` —la trampa
+ * cancela el evento para quedarse con el Tab— y adónde fue a parar el foco.
+ */
 function teclearDentro(key: string, shiftKey = false) {
-	elPanel()?.dispatchEvent(new KeyboardEvent('keydown', { key, shiftKey, bubbles: true }));
+	const evento = new KeyboardEvent('keydown', { key, shiftKey, bubbles: true, cancelable: true });
+	elPanel()?.dispatchEvent(evento);
+	return evento;
 }
 
 /** Dos vueltas: el diálogo enfoca en la primera y quien lo usa en la segunda. */
@@ -116,20 +129,20 @@ describe('la ayuda de atajos', () => {
 	});
 
 	test('el Tab no se escapa a la lista de atrás', async () => {
-		const afuera = document.createElement('button');
-		afuera.className = 'de-atras';
-		document.body.appendChild(afuera);
-
+		// Adentro hay un solo botón —el de cerrar—, así que dar la vuelta es
+		// quedarse en él. Lo que prueba que la trampa corrió es que el evento
+		// quede cancelado: sin ella el Tab seguiría hasta lo de atrás.
 		abrir();
 		await asentarse();
 
-		const cerrar = elPanel()?.querySelector<HTMLElement>('button');
+		const cerrar = elPanel()?.querySelector<HTMLElement>('button') ?? null;
+		expect(cerrar).not.toBeNull();
 		cerrar?.focus();
-		teclearDentro('Tab');
+		const evento = teclearDentro('Tab');
 		await nextTick();
 
-		expect(document.activeElement).not.toBe(afuera);
-		afuera.remove();
+		expect(evento.defaultPrevented).toBe(true);
+		expect(document.activeElement).toBe(cerrar);
 	});
 
 	test('y Escape cierra', async () => {
@@ -189,22 +202,25 @@ describe('la ventana de redacción', () => {
 	});
 
 	test('el Tab da la vuelta adentro en vez de salirse al correo de atrás', async () => {
-		const afuera = document.createElement('button');
-		afuera.className = 'de-atras';
-		document.body.appendChild(afuera);
-
+		// Acá hay varios campos, así que dar la vuelta se ve: del último al
+		// primero. Y el evento tiene que quedar cancelado, o el Tab nativo
+		// seguiría de largo hasta la lista de mensajes que el velo tapa.
 		abrir();
 		await asentarse();
 
-		const alcanzables = elPanel()?.querySelectorAll<HTMLElement>(
-			'input, select, textarea, button:not([disabled])'
-		);
-		alcanzables?.[(alcanzables?.length ?? 1) - 1].focus();
-		teclearDentro('Tab');
+		const alcanzables = [
+			...(elPanel()?.querySelectorAll<HTMLElement>(
+				'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+			) ?? []),
+		];
+		expect(alcanzables.length).toBeGreaterThan(1);
+
+		alcanzables[alcanzables.length - 1].focus();
+		const evento = teclearDentro('Tab');
 		await nextTick();
 
-		expect(document.activeElement).not.toBe(afuera);
-		afuera.remove();
+		expect(evento.defaultPrevented).toBe(true);
+		expect(document.activeElement).toBe(alcanzables[0]);
 	});
 
 	test('Escape cierra cuando no hay nada escrito', async () => {
