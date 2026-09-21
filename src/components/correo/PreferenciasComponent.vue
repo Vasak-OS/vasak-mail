@@ -1,11 +1,20 @@
 <script lang="ts" setup>
 import { invoke } from '@tauri-apps/api/core';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
+import { AlertMessage, Dialog, DialogContent, DialogTitle } from '@vasakgroup/vue-libvasak';
 import { onMounted, ref } from 'vue';
 import { guardarPreferencia, usePreferencias } from '@/composables/use-preferencias';
 import { MAX_SEGUNDOS_PARA_DESHACER } from '@/tools/deshacer';
 import { interpolar } from '@/tools/interpolar';
 
+/**
+ * Las preferencias de la ventana, en un diálogo del sistema.
+ *
+ * Declaraba `role="dialog"` y `aria-modal="true"` sin cumplir ninguna de las
+ * dos: el foco nunca entraba y el Tab seguía recorriendo la lista de mensajes
+ * de atrás. Ahora lo pone `DialogContent`, con Escape y el foco devuelto al
+ * cerrar.
+ */
 defineProps<{ abierto: boolean }>();
 const emit = defineEmits<{ cerrar: [] }>();
 
@@ -67,17 +76,10 @@ async function elegir(valor: string) {
 </script>
 
 <template>
-  <div
-    v-if="abierto"
-    class="absolute inset-0 z-20 flex items-center justify-center bg-black/40 p-4"
-    @click.self="emit('cerrar')">
-    <div
-      role="dialog"
-      aria-modal="true"
-      :aria-label="t('preferencias.titulo')"
-      class="max-h-full w-96 overflow-y-auto rounded-corner border border-ui-border bg-ui-bg p-4 shadow-lg">
+  <Dialog :open="abierto" @update:open="emit('cerrar')">
+    <DialogContent class="max-h-full overflow-y-auto">
       <header class="mb-3 flex items-baseline justify-between gap-2">
-        <h2 class="font-medium text-lg text-tx-main">{{ t('preferencias.titulo') }}</h2>
+        <DialogTitle>{{ t('preferencias.titulo') }}</DialogTitle>
         <button
           type="button"
           class="rounded-corner px-2 py-0.5 text-sm text-tx-muted hover:bg-ui-surface"
@@ -169,7 +171,11 @@ async function elegir(valor: string) {
           </span>
         </span>
       </fieldset>
-      <p v-if="error" class="mt-2 text-status-warning text-xs" role="status">{{ error }}</p>
-    </div>
-  </div>
+      <!-- En el aviso del sistema: guardar una preferencia y que falle es un
+           error, y con `role="alert"` interrumpe en vez de esperar turno. -->
+      <AlertMessage v-if="error" tone="error" icon="dialog-error" class="mt-3">
+        {{ error }}
+      </AlertMessage>
+    </DialogContent>
+  </Dialog>
 </template>

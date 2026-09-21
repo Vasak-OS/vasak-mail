@@ -11,8 +11,14 @@
  */
 
 import { afterEach, describe, expect, test } from 'bun:test';
-import { AppBar, WindowControls, WindowFrame } from '@vasakgroup/vue-libvasak';
+import {
+	AppBar,
+	olvidarLosIconosDelTema,
+	WindowControls,
+	WindowFrame,
+} from '@vasakgroup/vue-libvasak';
 import { mount, type VueWrapper } from '@vue/test-utils';
+import { nextTick } from 'vue';
 import CorreoView from '@/views/CorreoView.vue';
 import { olvidarTodo } from './dobles';
 
@@ -48,6 +54,10 @@ afterEach(() => {
 	vista?.unmount();
 	vista = null;
 	olvidarTodo();
+	// Lo que el tema resolvió se memoriza en el módulo de la librería, y un
+	// módulo se comparte entre archivos de prueba: sin vaciarlo, el primero que
+	// pida un icono con el tema sin preparar deja guardado que no hay ninguno.
+	olvidarLosIconosDelTema();
 });
 
 describe('la ventana', () => {
@@ -73,10 +83,15 @@ describe('la ventana', () => {
 });
 
 describe('lo que va en la barra', () => {
-	test('el icono va en `identidad`', () => {
+	test('el icono va en `identidad`', async () => {
 		// En el contenido de la barra se desplazaría con lo demás cuando queda a
 		// un costado: `identidad` es la única zona que no scrollea.
+		//
+		// Lo dibuja `ThemeIcon`, que lo resuelve contra el tema: hasta que
+		// vuelve deja un hueco del tamaño del icono y no un `img`.
 		const dentro = ranura(abrir(), 'identidad');
+		await new Promise((listo) => setTimeout(listo, 0));
+		await nextTick();
 
 		expect(dentro?.find('img').attributes('alt')).toBe('app.nombre');
 	});

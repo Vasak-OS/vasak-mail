@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
+import { AlertMessage, ThemeIcon } from '@vasakgroup/vue-libvasak';
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import AtajosComponent from '@/components/correo/AtajosComponent.vue';
 import CuentasComponent from '@/components/correo/CuentasComponent.vue';
@@ -11,7 +12,6 @@ import PreferenciasComponent from '@/components/correo/PreferenciasComponent.vue
 import RedactarComponent from '@/components/correo/RedactarComponent.vue';
 import { type Borrador, type Resumen, useCorreo } from '@/composables/use-correo';
 import { cargarPreferencias, usePreferencias } from '@/composables/use-preferencias';
-import { useReactiveIcons } from '@/composables/useReactiveIcon';
 import WindowAppLayout from '@/layouts/WindowAppLayout.vue';
 import { Atajos, juego } from '@/tools/atajos';
 import { claveDe } from '@/tools/bandeja';
@@ -55,13 +55,6 @@ const {
 	olvidarEnvio,
 	descartarSaliente,
 } = useCorreo();
-
-const { actualizar, icono } = useReactiveIcons({
-	actualizar: 'view-refresh',
-	// El icono de la aplicación, no un símbolo: es la identidad de la ventana y
-	// va a color, como en el resto del escritorio.
-	icono: { name: 'internet-mail', type: 'icon' },
-});
 
 /**
  * Dónde está parada la ventana: la carpeta abierta y de qué cuenta.
@@ -417,7 +410,9 @@ onUnmounted(() => {
          Va en `identidad` y no en el contenido de la barra: es la única zona
          que no se desplaza con el resto cuando la barra queda a un costado. -->
     <template #identidad>
-      <img :src="icono" class="h-6 w-6 shrink-0" :alt="t('app.nombre')" />
+      <!-- A color y no monocromo: es la identidad de la ventana, como en el
+           resto del escritorio. -->
+      <ThemeIcon name="internet-mail" :size="24" :alt="t('app.nombre')" />
     </template>
 
     <!-- El estado y los dos botones, junto a los de la ventana, que es donde
@@ -444,7 +439,7 @@ onUnmounted(() => {
         :title="t('lista.actualizar')"
         :disabled="cargandoLista"
         @click="cargarCuentas()">
-        <img :src="actualizar" class="h-6 w-6" alt="" />
+        <ThemeIcon name="view-refresh" type="symbol" :size="24" />
       </button>
     </template>
 
@@ -480,13 +475,14 @@ onUnmounted(() => {
         @deshacer="volverAAbrirLoQueSeMando"
         @vencio="olvidarEnvio" />
       <!-- Lo que falló va a la vista y no a la consola: una casilla vacía y una
-           que no se pudo leer se ven idénticas, y la diferencia importa. -->
-      <p
-        v-if="error"
-        class="border-ui-border border-b px-3 py-2 text-status-warning text-xs"
-        role="status">
+           que no se pudo leer se ven idénticas, y la diferencia importa.
+
+           En el aviso del sistema, que además le pone `role="alert"`: una
+           casilla que no se pudo leer **interrumpe** al lector de pantalla en
+           vez de esperar turno, que es lo que hacía con `status`. -->
+      <AlertMessage v-if="error" tone="error" icon="dialog-error" class="mx-1 mt-1">
         {{ error }}
-      </p>
+      </AlertMessage>
 
       <!-- Las secciones separadas por aire y no por líneas: cada una es una
            superficie redondeada, como los paneles del escritorio. -->
