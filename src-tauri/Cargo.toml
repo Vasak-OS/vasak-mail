@@ -1,6 +1,6 @@
 [package]
 name = "vasak-mail"
-version = "0.15.2"
+version = "0.16.0"
 description = "El correo de VasakOS"
 authors = ["Vasak Group", "Joaquin (Pato) Decima"]
 edition = "2021"
