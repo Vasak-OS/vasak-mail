@@ -12,31 +12,45 @@
  * prueba ni el CI dijeran nada.
  */
 
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, jest, test } from 'bun:test';
 import { olvidarLosIconosDelTema } from '@vasakgroup/vue-libvasak';
 import { mount, type VueWrapper } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import CorreoView from '@/views/CorreoView.vue';
 import { emit, olvidarTodo, setThemeIcon } from './dobles';
 
-/** Deja que terminen las promesas encadenadas del pedido del icono. */
+/**
+ * Deja que terminen las promesas encadenadas del pedido del icono.
+ *
+ * Sólo microtareas: con el reloj detenido, un `setTimeout(0)` no vuelve nunca.
+ */
 async function settle(rounds = 8) {
 	for (let i = 0; i < rounds; i++) {
 		await nextTick();
-		await new Promise((done) => setTimeout(done, 0));
+		await Promise.resolve();
 	}
 }
 
 /**
- * Lo mismo, esperando además a que el planificador recargue.
+ * Adelanta el reloj hasta pasada la espera del planificador, y asienta.
  *
- * Desde la 1.3.0 el cambio de tema no vuelve a pedir en el acto: vacía la
- * memoria y **agenda** la recarga, para que el anuncio del tema de iconos y el
- * de GTK no disparen dos barridos.
+ * Con temporizadores falsos y no con una espera de verdad. Las dos cosas que
+ * hay que comprobar acá se pelean: que la recarga **todavía no** pasó justo
+ * después del evento, y que **sí** pasa un poco más tarde. Con el reloj real la
+ * primera falla de a ratos —si la máquina se demora, los 100 ms se cumplen
+ * antes de la aserción— y con sólo un `nextTick` la segunda se vuelve vacía:
+ * sin planificador la recarga tampoco llega a verse, así que la prueba pasaría
+ * con la librería vieja. Comprobado: pasa.
+ *
+ * Con el reloj detenido no hay carrera. Se avanza a mano y en dos pasos,
+ * porque el planificador `await`ea entre tandas y las microtareas tienen que
+ * poder correr en el medio.
  */
-async function settleWithReload() {
-	await new Promise((done) => setTimeout(done, 150));
-	await settle();
+async function advancePastReload() {
+	for (let i = 0; i < 8; i++) {
+		jest.advanceTimersByTime(40);
+		await settle(2);
+	}
 }
 
 /** El icono de la aplicación, que es el primero que dibuja la vista. */
@@ -54,6 +68,7 @@ function iconSources(vista: VueWrapper): string[] {
 }
 
 beforeEach(() => {
+	jest.useFakeTimers();
 	olvidarTodo();
 	// La memoria de la librería vive en su módulo y sobrevive entre archivos de
 	// prueba: sin vaciarla, esto ve el icono que dejó otra.
@@ -64,6 +79,7 @@ afterEach(() => {
 	mounted?.unmount();
 	mounted = null;
 	olvidarLosIconosDelTema();
+	jest.useRealTimers();
 });
 
 describe('el correo dibuja sus iconos con el tema', () => {
@@ -88,11 +104,15 @@ describe('el correo dibuja sus iconos con el tema', () => {
 
 		setThemeIcon(APP_ICON, 'data:image/svg+xml,correo-oscuro');
 		await emit('vicons:theme-changed');
+		// Todas las microtareas que quieran, sin mover el reloj: así el camino
+		// **sin** planificador —que resuelve con promesas y nada más— llega a
+		// terminar, y la aserción de abajo dice algo. Con el reloj detenido no
+		// hay forma de que se cumplan los 100 ms por accidente.
 		await settle();
 
 		expect(iconSources(vista)).not.toContain('data:image/svg+xml,correo-oscuro');
 
-		await settleWithReload();
+		await advancePastReload();
 		expect(iconSources(vista)).toContain('data:image/svg+xml,correo-oscuro');
 	});
 });
