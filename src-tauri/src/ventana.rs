@@ -148,9 +148,13 @@ mod tests {
         let conf = json(include_str!("../tauri.conf.json"));
 
         let binario = conf["productName"].as_str().expect("tiene productName");
+        // Con `%u` al final, que es donde el sistema pone el `mailto:` cuando
+        // esta aplicación es la elegida para el correo. Sin el marcador, el
+        // enlace no llega a ningún lado: la ventana abre en la bandeja de
+        // entrada y el destinatario se pierde sin que nada falle.
         assert!(
-            entrada.contains(&format!("\nExec={binario}\n")),
-            "el Exec de la entrada no es «{binario}»"
+            entrada.contains(&format!("\nExec={binario} %u\n")),
+            "el Exec de la entrada no es «{binario} %u»"
         );
 
         // Y el `StartupWMClass` tiene que ser el identificador, o el escritorio
@@ -161,6 +165,35 @@ mod tests {
             entrada.contains(&format!("\nStartupWMClass={identificador}\n")),
             "el StartupWMClass de la entrada no es «{identificador}»"
         );
+    }
+
+    /// La entrada se ofrece como cliente de correo predeterminado.
+    ///
+    /// Sin esta línea la aplicación no aparece en «Aplicaciones predeterminadas»
+    /// ni recibe los `mailto:`, y no falla nada: la lista de candidatos se arma
+    /// con las entradas que declaran el tipo, y la que no lo declara no está.
+    #[test]
+    fn la_entrada_del_menu_se_ofrece_para_los_mailto() {
+        let entrada = include_str!("../packaging/vasak-mail.desktop");
+
+        assert!(
+            entrada.contains("\nMimeType=x-scheme-handler/mailto;"),
+            "la entrada no declara manejar los mailto:"
+        );
+    }
+
+    /// Y lo que la plantilla del empaquetador genera dice lo mismo.
+    ///
+    /// Son dos archivos que nadie compara: el paquete instala el del
+    /// repositorio **encima** del que genera el empaquetador, así que una
+    /// diferencia acá no se ve hasta que alguien cambia ese orden o compila el
+    /// bundle a mano.
+    #[test]
+    fn la_plantilla_del_empaquetador_tambien() {
+        let plantilla = include_str!("../vasak-mail.desktop.hbs");
+
+        assert!(plantilla.contains("\nExec={{exec}} %u\n"));
+        assert!(plantilla.contains("\nMimeType=x-scheme-handler/mailto;"));
     }
 
     /// Lo mínimo que el estándar exige, para que el archivo no se descarte

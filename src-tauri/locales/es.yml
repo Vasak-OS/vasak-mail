@@ -127,6 +127,11 @@ preferencias:
     Con más de un mensaje el cartel no nombra a ninguno: diría el de uno y
     callaría los otros.
 
+mailto:
+  # Aparece cuando un enlace `mailto:` pedía copia oculta: ni la ventana de
+  # redacción ni el servicio que arma el mensaje tienen `Bcc` todavía.
+  sinCopiaOculta: El enlace pedía una copia oculta, y todavía no se puede mandar. Lo demás quedó puesto.
+
 redactar:
   nuevo: Escribir
   responder: Responder

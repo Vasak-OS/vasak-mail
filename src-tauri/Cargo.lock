@@ -4612,7 +4612,7 @@ dependencies = [
 
 [[package]]
 name = "vasak-mail"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "base64 0.22.1",
  "dirs",

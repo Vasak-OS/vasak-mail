@@ -10,7 +10,17 @@ Comment[es]=Leé y escribí tu correo
 # esto al `productName` de `tauri.conf.json`: si alguien renombra el programa y
 # se olvida de acá, el lanzador del menú deja de abrir nada y no falla nada al
 # compilar.
-Exec=vasak-mail
+Exec=vasak-mail %u
+# Lo que hace que esta aplicación aparezca en «Aplicaciones predeterminadas»
+# para el correo, y que un clic en una dirección de una página la abra. La lista
+# de candidatos a cliente de correo se arma con las entradas que declaran este
+# tipo: sin esta línea la aplicación no está ahí, y no falla nada — simplemente
+# no aparece.
+#
+# El `%u` de arriba es la otra mitad: es donde el sistema pone el `mailto:`. Sin
+# él la aplicación abriría en la bandeja de entrada e ignoraría el destinatario
+# en silencio, que es peor que no ofrecerse. Lo lee `src-tauri/src/mailto.rs`.
+MimeType=x-scheme-handler/mailto;
 # Por nombre y no por ruta: lo resuelve el tema de iconos, así que sigue al
 # escritorio. Es el mismo que usa la ventana en su barra y el que pone
 # `vasak-accounts-sync` en el cartel de correo nuevo.

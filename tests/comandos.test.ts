@@ -43,8 +43,13 @@ function comandosDeRust(): Map<string, string[]> {
 	// familia como en `vasak-settings`.
 	const fuente = readFileSync('src-tauri/src/comandos.rs', 'utf8');
 
+	// El `<…>` opcional después del nombre es por los comandos genéricos
+	// —`fn x<R: Runtime>(app: AppHandle<R>)`—, que son válidos y que sin esto
+	// no se encontraban: el comando quedaba fuera del mapa y su llamada se
+	// denunciaba como inexistente. Peor todavía al revés: un comando genérico
+	// podía cambiar de firma sin que esta prueba mirara nada.
 	for (const m of fuente.matchAll(
-		/#\[tauri::command\][\s\S]*?fn\s+(\w+)\s*\(([\s\S]*?)\)\s*(?:->|\{)/g
+		/#\[tauri::command\][\s\S]*?fn\s+(\w+)\s*(?:<[^(]*?>)?\s*\(([\s\S]*?)\)\s*(?:->|\{)/g
 	)) {
 		const [, nombre, firma] = m;
 		const args: string[] = [];

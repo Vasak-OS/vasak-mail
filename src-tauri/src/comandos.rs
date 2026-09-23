@@ -2,9 +2,12 @@
 //!
 //! Una capa fina sobre `correo.rs`: todo el trabajo lo hace el sincronizador.
 
+use tauri::Manager;
+
 use crate::correo::{
     self, Abierto, AdjuntoParaMandar, Borrador, Casilla, Cuenta, Resumen, Saliente,
 };
+use crate::mailto::{MailtoDraft, PendingMailto};
 
 /// Las cuentas con correo, y cuánto tienen sin leer.
 #[tauri::command]
@@ -116,4 +119,21 @@ pub async fn listar_salientes() -> Result<Vec<Saliente>, String> {
 #[tauri::command]
 pub async fn descartar_saliente(id: String) -> Result<(), String> {
     correo::descartar(&id).await
+}
+
+/// El `mailto:` con el que se abrió la aplicación, una sola vez.
+///
+/// Lo pide la ventana cuando terminó de cargar. **Se lo lleva**: una recarga del
+/// WebView —que en desarrollo pasa a cada rato, y en producción puede pasar
+/// después de un error— volvería a abrir el mismo mensaje encima de lo que se
+/// estuviera escribiendo.
+///
+/// Devuelve `None` cuando la aplicación se abrió normalmente, que es casi
+/// siempre.
+#[tauri::command]
+pub fn take_pending_mailto(app: tauri::AppHandle) -> Option<MailtoDraft> {
+    let estado = app.state::<PendingMailto>();
+    let mut guardado = estado.0.lock().ok()?;
+
+    guardado.take()
 }
