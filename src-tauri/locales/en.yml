@@ -113,6 +113,11 @@ preferencias:
     With more than one message the card names none of them: it would say one
     and stay quiet about the rest.
 
+mailto:
+  # Shown when a `mailto:` link asked for a blind copy: neither the compose
+  # window nor the service that builds the message support `Bcc` yet.
+  sinCopiaOculta: The link asked for a blind copy, which cannot be sent yet. Everything else was filled in.
+
 redactar:
   nuevo: Write
   responder: Reply

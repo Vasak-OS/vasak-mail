@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import { AlertMessage, ThemeIcon } from '@vasakgroup/vue-libvasak';
@@ -17,6 +18,7 @@ import { Atajos, juego } from '@/tools/atajos';
 import { claveDe } from '@/tools/bandeja';
 import { nombreDeCasilla } from '@/tools/casillas';
 import { interpolar } from '@/tools/interpolar';
+import { aBorrador, type MailtoRequest } from '@/tools/mailto';
 import { panelVisible } from '@/tools/paneles';
 import { responder as armarRespuesta } from '@/tools/responder';
 
@@ -107,6 +109,35 @@ function escribir() {
 	// correo con la identidad equivocada.
 	cuentaDelBorrador.value = combinada.value ? (cuentas.value[0]?.account_id ?? '') : elegida.value;
 	esRespuesta.value = false;
+}
+
+/**
+ * Si el enlace que abrió esta ventana pedía una copia oculta.
+ *
+ * Se dice y no se calla: ni la ventana de redacción ni el servicio que arma el
+ * mensaje tienen `Bcc` todavía, así que esas direcciones no van a ninguna
+ * parte. Un mensaje que sale sin la copia oculta que el enlace pedía, y sin que
+ * nadie lo mencione, es de los errores que se descubren tarde.
+ */
+const avisoDeCopiaOculta = ref(false);
+
+/**
+ * Abre el mensaje que pidió un `mailto:`.
+ *
+ * Llega por dos caminos, y los dos terminan acá: el argumento con el que se
+ * abrió la aplicación —que el proceso de Rust guardó hasta que esta ventana
+ * estuvo lista— y el aviso de una segunda invocación, que es lo que pasa al
+ * hacer clic en una dirección con el correo ya abierto.
+ */
+function abrirLoQuePidieron(pedido: MailtoRequest) {
+	const { borrador, sinCopiaOculta } = aBorrador(pedido);
+
+	redactando.value = borrador;
+	esRespuesta.value = false;
+	avisoDeCopiaOculta.value = sinCopiaOculta;
+	// La cuenta se elige igual que al escribir a mano: en la combinada no hay
+	// ninguna elegida, y mandar «desde todas» no quiere decir nada.
+	cuentaDelBorrador.value = combinada.value ? (cuentas.value[0]?.account_id ?? '') : elegida.value;
 }
 
 /**
@@ -355,6 +386,7 @@ function alApretar(evento: KeyboardEvent) {
 }
 
 let dejarDeEscuchar: UnlistenFn | null = null;
+let dejarDeEscucharMailto: UnlistenFn | null = null;
 /**
  * Si la vista ya se desmontó.
  *
@@ -391,13 +423,47 @@ onMounted(async () => {
 		console.error('no se pudo escuchar los avisos de correo nuevo', e);
 	}
 
+	// Lo que pida un `mailto:` mientras la ventana ya está abierta. El oyente va
+	// antes de cargar las cuentas, por lo mismo que el de arriba: los dos
+	// segundos de la primera carga son tiempo de sobra para hacer clic en una
+	// dirección y que el aviso no lo escuche nadie.
+	try {
+		const cancelar = await listen<MailtoRequest>('mailto', (aviso) =>
+			abrirLoQuePidieron(aviso.payload)
+		);
+		if (desmontada) {
+			cancelar();
+		} else {
+			dejarDeEscucharMailto = cancelar;
+		}
+	} catch (e) {
+		console.error('no se pudieron escuchar los pedidos de mailto', e);
+	}
+
 	await cargarCuentas();
+
+	// Y el que abrió la aplicación, si lo hubo. **Al final**: abre la ventana de
+	// redacción encima de la lista, y hacerlo antes de tener las cuentas la
+	// dejaría sin saber desde cuál sale el mensaje.
+	//
+	// El backend lo entrega una sola vez. Si esto se pidiera en cada recarga del
+	// WebView, el mismo mensaje volvería a abrirse encima de lo que se estuviera
+	// escribiendo.
+	try {
+		const pendiente = await invoke<MailtoRequest | null>('take_pending_mailto');
+		if (pendiente) {
+			abrirLoQuePidieron(pendiente);
+		}
+	} catch (e) {
+		console.error('no se pudo leer el mailto del arranque', e);
+	}
 });
 
 onUnmounted(() => {
 	desmontada = true;
 	window.removeEventListener('keydown', alApretar);
 	dejarDeEscuchar?.();
+	dejarDeEscucharMailto?.();
 });
 </script>
 
@@ -484,6 +550,20 @@ onUnmounted(() => {
         {{ error }}
       </AlertMessage>
 
+      <!-- Lo que el enlace pedía y esta ventana no puede dar.
+           Se dice acá arriba y no dentro de la ventana de redacción, que es
+           modal y se cierra: el aviso tiene que seguir a la vista mientras se
+           escribe el mensaje, porque lo que hay que decidir —si escribir esa
+           dirección a mano en el «Cc», o mandar el mensaje dos veces— se decide
+           escribiendo. Ver `tools/mailto.ts`. -->
+      <AlertMessage
+        v-if="avisoDeCopiaOculta"
+        tone="warning"
+        icon="dialog-warning"
+        class="mx-1 mt-1">
+        {{ t('mailto.sinCopiaOculta') }}
+      </AlertMessage>
+
       <!-- Las secciones separadas por aire y no por líneas: cada una es una
            superficie redondeada, como los paneles del escritorio. -->
       <div class="flex min-h-0 flex-1 gap-1 p-1">
@@ -535,7 +615,7 @@ onUnmounted(() => {
         :cuenta="cuentaDelBorrador"
         @elegir-cuenta="cuentaDelBorrador = $event"
         @enviar="enviarBorrador"
-        @cerrar="redactando = null" />
+        @cerrar="redactando = null; avisoDeCopiaOculta = false" />
     </div>
   </WindowAppLayout>
 </template>

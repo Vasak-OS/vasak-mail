@@ -6,6 +6,7 @@
 mod comandos;
 mod correo;
 mod locales;
+mod mailto;
 mod preferencias;
 mod ventana;
 
@@ -39,9 +40,15 @@ pub fn run() {
         // plugin: lo único que hace una segunda instancia antes de morirse es
         // instalar el gancho de pánico, y a cambio se conserva la garantía de
         // que un pánico durante el arranque deja rastro.
+        // Y lo que traiga la segunda invocación se atiende: un `mailto:` con la
+        // aplicación abierta llega por acá, no por los argumentos de este
+        // proceso. Sin esto, hacer clic en una dirección con el correo abierto
+        // levantaba la ventana y no abría ningún mensaje — que es exactamente
+        // la mitad de las veces que alguien hace clic en una dirección.
         .plugin(tauri_plugin_single_instance::init(
-            |app, _argumentos, _directorio| {
+            |app, argumentos, _directorio| {
                 ventana::traer_al_frente(app);
+                mailto::atender(app, &argumentos);
             },
         ))
         .plugin(tauri_plugin_vsk_contextual_menu::init())
@@ -64,11 +71,19 @@ pub fn run() {
             comandos::poner_preferencia,
             comandos::listar_salientes,
             comandos::descartar_saliente,
+            comandos::take_pending_mailto,
         ])
         // El sincronizador avisa cuando llega correo; esto lo traduce a un
         // evento que la ventana escucha. Ver `correo.rs`.
         .setup(|app| {
             correo::escuchar(app.handle().clone());
+            // El `mailto:` con el que se abrió la aplicación, si lo hubo.
+            //
+            // Se **guarda** en vez de emitirse: acá el frontend no existe
+            // todavía, así que un evento no lo escucharía nadie y el mensaje se
+            // perdería sin dejar rastro. Lo pide él cuando está listo, ver
+            // `comandos::take_pending_mailto`.
+            mailto::guardar_el_del_arranque(app.handle());
             // La ventana nace oculta y la muestra el frontend cuando ya tiene los
             // textos y el tema. Esto la muestra igual si el frontend nunca llega:
             // ver `ventana.rs`.
