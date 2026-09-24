@@ -311,7 +311,7 @@ function cerrar() {
             <span class="text-tx-muted shrink-0 text-xs">{{ pesa(adjunto.bytes) }}</span>
             <button
               type="button"
-              class="rounded-corner-sm px-1 text-tx-muted shrink-0 hover:bg-ui-surface hover:text-tx-primary"
+              class="rounded-corner-sm px-1 text-tx-muted shrink-0 hover:bg-ui-surface hover:text-tx-main"
               :title="t('adjuntar.sacar')"
               :aria-label="t('adjuntar.sacar')"
               @click="sacarAdjunto(indice)">
