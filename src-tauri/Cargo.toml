@@ -1,6 +1,6 @@
 [package]
 name = "vasak-mail"
-version = "0.18.1"
+version = "0.18.2"
 description = "El correo de VasakOS"
 authors = ["Vasak Group", "Joaquin (Pato) Decima"]
 edition = "2021"
@@ -36,7 +36,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 # Los directorios base del estándar: la regla de que una variable relativa o
 # vacía se ignora vive ahí y no en una copia acá. Ver `preferencias::archivo`.
-dirs = "6"
+dirs = "7"
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -54,7 +54,7 @@ tauri-plugin-shell = "2"
 # no declara nada extra por esto.
 tauri-plugin-dialog = "2"
 # Para codificar el contenido de un adjunto. Es Rust puro.
-base64 = "0.22"
+base64 = "0.23"
 # Una sola ventana de correo: abrir la aplicación estando ya abierta levanta la
 # que hay. Ver el comentario en `lib.rs`. Es Rust puro —habla por el bus de
 # sesión, al que ya estamos conectados— así que no agrega ninguna biblioteca
@@ -66,7 +66,7 @@ gtk = "0.18"
 tauri-plugin-vsk-journal = "2"
 # Para hablar con vasak-accounts-sync, que es de donde sale el correo. En el bus
 # **de sesión**: es un servicio del usuario y lo que publica es suyo.
-zbus = { version = "4", default-features = false, features = ["tokio"] }
+zbus = { version = "5", default-features = false, features = ["tokio"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"] }
 # Para el flujo de señales de D-Bus, que es cómo llega el aviso de correo nuevo.
 futures-util = "0.3"
