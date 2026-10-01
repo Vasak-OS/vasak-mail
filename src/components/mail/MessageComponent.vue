@@ -2,16 +2,24 @@
 import { invoke } from '@tauri-apps/api/core';
 import { save as guardarDialogo } from '@tauri-apps/plugin-dialog';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
+import {
+	ActionButton,
+	AlertMessage,
+	EmptyState,
+	ListRow,
+	LoadingState,
+	Panel,
+} from '@vasakgroup/vue-libvasak';
 import { computed, nextTick, ref, watch } from 'vue';
 import type { Abierto, Adjunto, Resumen } from '@/composables/use-correo';
 import { usePreferencias } from '@/composables/use-preferencias';
 import { coloresDelTema, conLasImagenes, documentoDe } from '@/tools/formato';
 import { interpolar } from '@/tools/interpolar';
-import type { Panel } from '@/tools/paneles';
+import { type Pane, paneVisibility } from '@/tools/panes';
 
 const props = defineProps<{
 	/** Cuál de los tres paneles se ve. Sólo importa en una ventana angosta. */
-	panel: Panel;
+	panel: Pane;
 	abierto: Resumen | null;
 	cuerpo: Abierto | null;
 	cargando: boolean;
@@ -132,20 +140,23 @@ const documento = computed(() => {
 	return documentoDe(cuerpo, coloresDelTema(document.documentElement), conImagenes);
 });
 
-function imagenesBloqueadas(cuantas: number): string {
-	return interpolar(t('mensaje.imagenesBloqueadas'), cuantas);
+function blockedImages(count: number): string {
+	return interpolar(t('mensaje.imagenesBloqueadas'), count);
 }
 
 /**
  * El botón de volver, para mandarle el foco al abrir un mensaje.
  *
- * Es `md:hidden`, o sea que en una ventana ancha no se dibuja — y enfocar algo
- * que no se dibuja no hace nada. Eso es lo que hace que esto no necesite
- * preguntar el ancho de la ventana: en ancho, donde la lista sigue a la vista y
- * moverle el foco a alguien sería quitárselo a la lista, la llamada es inocua;
- * en angosto, donde el mensaje reemplazó a la lista, el foco lo sigue.
+ * Se esconde cuando entran los tres paneles (`@three-panes/panes:hidden`), o
+ * sea que en una ventana ancha no se dibuja — y enfocar algo que no se dibuja
+ * no hace nada. Eso es lo que hace que esto no necesite preguntar el ancho de
+ * la ventana: en ancho, donde la lista sigue a la vista y moverle el foco a
+ * alguien sería quitárselo a la lista, la llamada es inocua; en angosto, donde
+ * el mensaje reemplazó a la lista, el foco lo sigue.
+ *
+ * Es el `ActionButton` de la librería: el `<button>` es su `$el`.
  */
-const botonVolver = ref<HTMLButtonElement | null>(null);
+const backButton = ref<InstanceType<typeof ActionButton> | null>(null);
 
 /**
  * Los adjuntos que se están bajando, por su número de parte.
@@ -222,7 +233,7 @@ watch(
 	async (ahora) => {
 		if (!ahora) return;
 		await nextTick();
-		botonVolver.value?.focus();
+		(backButton.value?.$el as HTMLElement | undefined)?.focus();
 	}
 );
 
@@ -243,24 +254,28 @@ const cuando = computed(() => {
 </script>
 
 <template>
-  <section
-    class="min-w-0 flex-1 flex-col overflow-y-auto rounded-corner border border-ui-border bg-ui-surface/45 md:flex"
-    :class="panel === 'mensaje' ? 'flex' : 'hidden'">
-    <p v-if="!abierto" class="p-4 text-tx-muted text-sm">{{ t('mensaje.elegiUno') }}</p>
+  <Panel
+    as="section"
+    padding="none"
+    scroll
+    class="flex-1"
+    :class="paneVisibility('message', panel)">
+    <EmptyState v-if="!abierto" size="sm" icon="" :title="t('mensaje.elegiUno')" />
 
     <template v-else>
-      <header class="flex flex-col gap-1 border-ui-border border-b p-4">
-        <!-- Sólo en angosto: de `md` para arriba la lista está al lado y no hay
-             de dónde volver. Un botón que no lleva a ningún lado confunde. -->
-        <button
-          ref="botonVolver"
-          type="button"
-          class="-ml-1 mb-1 self-start rounded-corner px-2 py-0.5 text-sm text-tx-muted hover:bg-ui-surface md:hidden"
-          @click="emit('volver')">
-          ← {{ t('mensaje.volver') }}
-        </button>
-        <h1 class="font-title text-lg">{{ abierto.asunto || t('lista.sinAsunto') }}</h1>
-        <p class="text-sm">
+      <header class="flex flex-col gap-1 border-ui-line-weak border-b p-4">
+        <!-- Sólo en angosto: cuando entran los tres la lista está al lado y no
+             hay de dónde volver. Un botón que no lleva a ningún lado confunde. -->
+        <ActionButton
+          ref="backButton"
+          :label="t('mensaje.volver')"
+          variant="ghost"
+          size="sm"
+          icon="go-previous-symbolic"
+          class="-ml-2 mb-1 self-start @three-panes/panes:hidden"
+          @click="emit('volver')" />
+        <h1 class="break-words font-title text-lg">{{ abierto.asunto || t('lista.sinAsunto') }}</h1>
+        <p class="break-words text-body-s">
           <span class="text-tx-muted">{{ t('mensaje.de') }}: </span>
           <span>{{ abierto.de }}</span>
           <!-- La dirección **siempre**, al lado del nombre y no en su lugar.
@@ -270,36 +285,31 @@ const cuando = computed(() => {
                distinto para que se lea como lo que es: el dato, no la firma. -->
           <span class="text-tx-muted">&lt;{{ abierto.direccion }}&gt;</span>
         </p>
-        <p class="text-tx-muted text-xs">
+        <p class="text-body-xs text-tx-muted">
           <span>{{ t('mensaje.cuando') }}: </span>{{ cuando }}
         </p>
 
-        <div class="flex gap-2 pt-1">
+        <div class="flex flex-wrap gap-2 pt-1">
           <!-- Responder sólo cuando el mensaje ya está traído: la respuesta
                necesita el identificador del original y la cita del texto, y las
                dos cosas vienen con el cuerpo. Un botón que a veces arma una
                respuesta a medias es peor que un botón que aparece un segundo
                después. -->
-          <button
+          <ActionButton
             v-if="cuerpo"
-            type="button"
-            class="rounded-corner bg-primary px-2 py-0.5 text-sm text-tx-on-primary"
-            @click="emit('responder')">
-            {{ t('redactar.responder') }}
-          </button>
-          <button
+            :label="t('redactar.responder')"
+            size="sm"
+            @click="emit('responder')" />
+          <ActionButton
             v-if="abierto.sin_leer"
-            type="button"
-            class="rounded-corner border border-ui-border-strong px-2 py-0.5 text-sm hover:bg-ui-surface"
-            @click="emit('marcarLeido', abierto)">
-            {{ t('mensaje.marcarLeido') }}
-          </button>
+            :label="t('mensaje.marcarLeido')"
+            variant="secondary"
+            size="sm"
+            @click="emit('marcarLeido', abierto)" />
         </div>
       </header>
 
-      <p v-if="cargando" class="p-4 text-tx-muted text-sm" role="status">
-        {{ t('lista.cargando') }}
-      </p>
+      <LoadingState v-if="cargando" size="sm" :label="t('lista.cargando')" />
 
       <template v-else-if="cuerpo">
         <!-- Los dos avisos existen porque callarlos hace perder cosas: un texto
@@ -312,27 +322,31 @@ const cuando = computed(() => {
              El nombre viene saneado del sincronizador. Se muestra en un `<li>`
              y no en un enlace ni en nada que lo interprete: lo eligió quien
              mandó el mensaje. -->
-        <div
+        <AlertMessage
           v-if="cuerpo.adjuntos.length > 0"
-          class="mx-4 mt-3 rounded-corner bg-ui-surface/60 p-2 text-xs">
-          <p>📎 {{ t('mensaje.adjuntos') }}</p>
-          <ul class="mt-1 flex flex-col gap-1">
-            <li
-              v-for="a in cuerpo.adjuntos"
-              :key="a.parte"
-              class="flex items-baseline justify-between gap-2">
-              <span class="truncate" :title="a.tipo">{{ a.nombre }}</span>
-              <button
-                type="button"
-                class="shrink-0 rounded-corner border border-ui-border px-1.5 hover:bg-ui-surface disabled:opacity-50"
-                :disabled="guardando.has(a.parte)"
-                @click="guardar(a)">
-                {{ guardando.has(a.parte) ? t('mensaje.guardando') : t('mensaje.guardar') }}
-              </button>
+          tone="info"
+          icon="mail-attachment-symbolic"
+          class="mx-4 mt-3">
+          <p>{{ t('mensaje.adjuntos') }}</p>
+          <ul class="mt-1 flex flex-col">
+            <li v-for="a in cuerpo.adjuntos" :key="a.parte">
+              <ListRow class="-mx-3 px-3 py-1">
+                <template #default>
+                  <span class="truncate text-body-s" :title="a.tipo">{{ a.nombre }}</span>
+                </template>
+                <template #trailing>
+                  <ActionButton
+                    :label="guardando.has(a.parte) ? t('mensaje.guardando') : t('mensaje.guardar')"
+                    variant="secondary"
+                    size="sm"
+                    :loading="guardando.has(a.parte)"
+                    @click="guardar(a)" />
+                </template>
+              </ListRow>
             </li>
           </ul>
           <p v-if="avisoGuardar" class="mt-1 text-tx-muted" role="status">{{ avisoGuardar }}</p>
-        </div>
+        </AlertMessage>
 
         <!-- El mensaje con su formato, **adentro de un contenedor cerrado**.
              El servicio ya lo saneó; esto es la otra mitad, y ninguna reemplaza
@@ -346,28 +360,31 @@ const cuando = computed(() => {
         <template v-if="conFormato && formato">
           <!-- El botón existe porque la decisión es de la persona y no de quien
                escribió el correo. Se va en cuanto se aprieta: lo que queda es lo
-               que no se pudo traer, si hubo algo. -->
-          <div
+               que no se pudo traer, si hubo algo.
+
+               `role="status"` lo pone el aviso del sistema por el tono. -->
+          <AlertMessage
             v-if="formato.imagenes_bloqueadas > 0 && imagenes.size === 0"
-            class="mx-4 mt-3 flex flex-wrap items-center gap-2 rounded-corner bg-ui-surface/60 p-2 text-xs"
-            role="status">
-            <span class="min-w-0 flex-1">
-              {{ imagenesBloqueadas(formato.imagenes_bloqueadas) }}
-            </span>
-            <button
-              type="button"
-              class="shrink-0 rounded-corner border border-ui-border-strong px-2 py-0.5 hover:bg-ui-surface disabled:opacity-50"
-              :disabled="trayendo"
-              @click="mostrarLasImagenes()">
-              {{ trayendo ? t('mensaje.trayendoImagenes') : t('mensaje.mostrarImagenes') }}
-            </button>
-          </div>
-          <p
+            tone="info"
+            icon="image-missing-symbolic"
+            class="mx-4 mt-3">
+            {{ blockedImages(formato.imagenes_bloqueadas) }}
+            <template #actions>
+              <ActionButton
+                :label="trayendo ? t('mensaje.trayendoImagenes') : t('mensaje.mostrarImagenes')"
+                variant="secondary"
+                size="sm"
+                :disabled="trayendo"
+                @click="mostrarLasImagenes()" />
+            </template>
+          </AlertMessage>
+          <AlertMessage
             v-else-if="falloAlTraer > 0"
-            class="mx-4 mt-3 rounded-corner bg-ui-surface/60 p-2 text-status-warning text-xs"
-            role="status">
+            tone="warning"
+            icon="dialog-warning-symbolic"
+            class="mx-4 mt-3">
             {{ interpolar(t('mensaje.imagenesQueFallaron'), falloAlTraer) }}
-          </p>
+          </AlertMessage>
           <iframe
             :srcdoc="documento"
             sandbox=""
@@ -384,26 +401,25 @@ const cuando = computed(() => {
              leyó, y desde qué dirección IP. -->
         <pre
           v-else
-          class="min-w-0 flex-1 whitespace-pre-wrap break-words p-4 font-sans text-sm">{{ cuerpo.texto }}</pre>
+          class="min-w-0 flex-1 whitespace-pre-wrap break-words p-4 font-sans text-body-m">{{ cuerpo.texto }}</pre>
 
-        <p v-if="cuerpo.recortado" class="mx-4 mb-3 rounded-corner bg-ui-surface/60 p-2 text-xs">
+        <AlertMessage v-if="cuerpo.recortado" tone="info" icon="dialog-information-symbolic" class="mx-4 mb-3">
           {{ t('mensaje.recortado') }}
-        </p>
+        </AlertMessage>
 
         <!-- Poder volver al texto pelado es parte de la función, no un resto de
              la versión anterior: es la vista que sirve cuando un mensaje se ve
              raro o cuando no se le tiene confianza a quien lo mandó. -->
         <div class="flex items-center gap-2 px-4 pb-4">
-          <button
+          <ActionButton
             v-if="formato"
-            type="button"
-            class="rounded-corner border border-ui-border-strong px-2 py-0.5 text-xs hover:bg-ui-surface"
-            @click="conFormato = !conFormato">
-            {{ conFormato ? t('mensaje.verTextoPelado') : t('mensaje.verConFormato') }}
-          </button>
-          <span v-if="!formato" class="text-tx-muted text-xs">{{ t('mensaje.soloTexto') }}</span>
+            :label="conFormato ? t('mensaje.verTextoPelado') : t('mensaje.verConFormato')"
+            variant="secondary"
+            size="sm"
+            @click="conFormato = !conFormato" />
+          <span v-if="!formato" class="text-body-xs text-tx-muted">{{ t('mensaje.soloTexto') }}</span>
         </div>
       </template>
     </template>
-  </section>
+  </Panel>
 </template>

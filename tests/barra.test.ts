@@ -19,13 +19,13 @@ import {
 } from '@vasakgroup/vue-libvasak';
 import { mount, type VueWrapper } from '@vue/test-utils';
 import { nextTick } from 'vue';
-import CorreoView from '@/views/CorreoView.vue';
+import MailView from '@/views/MailView.vue';
 import { olvidarTodo } from './dobles';
 
 let vista: VueWrapper | null = null;
 
 function abrir() {
-	vista = mount(CorreoView);
+	vista = mount(MailView);
 	return vista;
 }
 

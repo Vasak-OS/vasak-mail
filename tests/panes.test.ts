@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { atrasDesde, hayQueRescatarElFoco, panelVisible } from '../src/tools/paneles';
+import { backFrom, shouldRescueFocus, visiblePane } from '../src/tools/panes';
 
 /**
  * Qué se ve en una ventana angosta.
@@ -8,34 +8,34 @@ import { atrasDesde, hayQueRescatarElFoco, panelVisible } from '../src/tools/pan
  * un estado paralelo sería uno que se desincroniza —abrir un mensaje con un
  * atajo y que el panel no cambie— y estas pruebas fijan que se deduzca bien.
  */
-describe('panelVisible', () => {
+describe('visiblePane', () => {
 	test('sin nada abierto se ve la lista', () => {
-		expect(panelVisible(false, false)).toBe('lista');
+		expect(visiblePane(false, false)).toBe('list');
 	});
 
 	test('con un mensaje abierto se ve el mensaje', () => {
 		// Y eso vale venga de un clic o de la tecla `j`: es la misma condición.
-		expect(panelVisible(true, false)).toBe('mensaje');
+		expect(visiblePane(true, false)).toBe('message');
 	});
 
 	test('las carpetas ganan mientras se están eligiendo', () => {
 		// Se acaban de pedir: son un paso atrás deliberado sobre lo que se
 		// estaba mirando, incluso si había un mensaje abierto.
-		expect(panelVisible(false, true)).toBe('carpetas');
-		expect(panelVisible(true, true)).toBe('carpetas');
+		expect(visiblePane(false, true)).toBe('folders');
+		expect(visiblePane(true, true)).toBe('folders');
 	});
 });
 
-describe('atrasDesde', () => {
+describe('backFrom', () => {
 	test('todo vuelve a la lista', () => {
-		expect(atrasDesde('mensaje')).toBe('lista');
-		expect(atrasDesde('carpetas')).toBe('lista');
+		expect(backFrom('message')).toBe('list');
+		expect(backFrom('folders')).toBe('list');
 	});
 
 	test('desde la lista no hay atrás', () => {
 		// Es el principio: dibujar un botón que no lleva a ningún lado es peor
 		// que no dibujarlo.
-		expect(atrasDesde('lista')).toBeNull();
+		expect(backFrom('list')).toBeNull();
 	});
 });
 
@@ -43,11 +43,11 @@ describe('atrasDesde', () => {
  * El rescate del foco al volver a la lista, y por qué tiene que mirar dónde
  * está el foco antes de moverlo.
  */
-describe('hayQueRescatarElFoco', () => {
+describe('shouldRescueFocus', () => {
 	test('al volver de un mensaje, sí', () => {
 		// Es para lo que existe: el foco quedó en algo que ya no se dibuja.
-		expect(hayQueRescatarElFoco('lista', 'mensaje', false)).toBe(true);
-		expect(hayQueRescatarElFoco('lista', 'carpetas', false)).toBe(true);
+		expect(shouldRescueFocus('list', 'message', false)).toBe(true);
+		expect(shouldRescueFocus('list', 'folders', false)).toBe(true);
 	});
 
 	/**
@@ -58,16 +58,16 @@ describe('hayQueRescatarElFoco', () => {
 	 * terminaba con el foco en el botón de la carpeta.
 	 */
 	test('pero no si el foco ya está adentro de la lista', () => {
-		expect(hayQueRescatarElFoco('lista', 'mensaje', true)).toBe(false);
+		expect(shouldRescueFocus('list', 'message', true)).toBe(false);
 	});
 
 	test('y no se hace nada si no se llegó a la lista', () => {
-		expect(hayQueRescatarElFoco('mensaje', 'lista', false)).toBe(false);
-		expect(hayQueRescatarElFoco('carpetas', 'lista', false)).toBe(false);
+		expect(shouldRescueFocus('message', 'list', false)).toBe(false);
+		expect(shouldRescueFocus('folders', 'list', false)).toBe(false);
 	});
 
 	test('ni si ya se estaba en la lista', () => {
 		// No hubo transición: nadie perdió el foco, no hay nada que rescatar.
-		expect(hayQueRescatarElFoco('lista', 'lista', false)).toBe(false);
+		expect(shouldRescueFocus('list', 'list', false)).toBe(false);
 	});
 });

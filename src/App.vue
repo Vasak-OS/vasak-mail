@@ -2,7 +2,7 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useConfigStore } from '@vasakgroup/plugin-config-manager';
 import { onMounted, onUnmounted, type Ref, ref } from 'vue';
-import CorreoView from '@/views/CorreoView.vue';
+import MailView from '@/views/MailView.vue';
 
 let unListenConfig: Ref<UnlistenFn | null> = ref(null);
 
@@ -36,5 +36,5 @@ onUnmounted(() => {
   <!-- La vista es dueña de la ventana entera, layout incluido.
        Así lo que va en la barra sale del mismo `useCorreo()` que la lista, sin
        duplicar el estado ni teletransportar nada. -->
-  <CorreoView />
+  <MailView />
 </template>

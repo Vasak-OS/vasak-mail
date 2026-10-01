@@ -2,7 +2,7 @@
  * A quién le toca el foco al volver del buscador.
  *
  * Es una decisión de tres líneas y vive acá igual, por la misma razón que
- * `hayQueRescatarElFoco`: el componente no puede probarse sin un navegador y
+ * `shouldRescueFocus`: el componente no puede probarse sin un navegador y
  * esto sí. Lo que importa no es el código sino el orden, y el orden es lo que
  * se rompe sin que nadie lo note.
  */
@@ -10,14 +10,14 @@
 /**
  * Los tres lugares donde puede quedar el foco, de mejor a peor.
  *
- * @param abierto la fila del mensaje que se está leyendo
- * @param primero la primera fila de la lista
- * @param contenedor la lista entera, que puede estar vacía
+ * @param open la fila del mensaje que se está leyendo
+ * @param first la primera fila de la lista
+ * @param container la lista entera, que puede estar vacía
  */
-export interface Candidatos<T> {
-	abierto: T | null;
-	primero: T | null;
-	contenedor: T | null;
+export interface FocusCandidates<T> {
+	open: T | null;
+	first: T | null;
+	container: T | null;
 }
 
 /**
@@ -32,8 +32,8 @@ export interface Candidatos<T> {
  * búsqueda sin resultados dejaba el foco en el campo y la tecla no hacía nada
  * visible, que es indistinguible de estar rota.
  */
-export function aQuienEnfocar<T>({ abierto, primero, contenedor }: Candidatos<T>): T | null {
-	return abierto ?? primero ?? contenedor;
+export function pickFocusTarget<T>({ open, first, container }: FocusCandidates<T>): T | null {
+	return open ?? first ?? container;
 }
 
 /**
@@ -41,19 +41,19 @@ export function aQuienEnfocar<T>({ abierto, primero, contenedor }: Candidatos<T>
  *
  * Están acá, y no escritos adentro del componente, para que una prueba los
  * pueda confrontar con la plantilla. Un selector es la clase de cosa que se
- * rompe en silencio: mover el `aria-current` al `<li>`, o envolver el botón en
+ * rompe en silencio: mover el `aria-current` al `<li>`, o envolver la fila en
  * otro elemento, deja el código compilando, los tipos contentos y la tecla sin
  * hacer nada.
  *
- * Lo ideal sería montar el componente y apretar la tecla. No se puede todavía:
- * `bun test` no compila archivos `.vue`, así que hacer eso pide un cargador de
- * SFC o un segundo corredor de pruebas —una decisión del repositorio entera, no
- * un detalle de este cambio—. Mientras tanto, confrontar los selectores con la
- * plantilla cubre la forma en que esto se rompe de verdad.
+ * La fila es la `ListRow` de la librería con `role="button"`: un elemento con
+ * ese rol y no un `<button>`, y es `ListRow` la que le pone el `aria-current`
+ * cuando está elegida. Por eso se busca por el rol: el día que la fila vuelva a
+ * ser un `<button>` de verdad, esto deja de encontrarla y la prueba que monta la
+ * lista lo dice.
  */
-export const SELECTORES = Object.freeze({
+export const ROW_SELECTORS = Object.freeze({
 	/** La fila del mensaje que se está leyendo. */
-	abierto: 'li button[aria-current="true"]',
+	open: 'li [role="button"][aria-current="true"]',
 	/** La primera fila que haya. */
-	primero: 'li button',
+	first: 'li [role="button"]',
 });
