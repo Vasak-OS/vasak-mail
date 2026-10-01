@@ -2,15 +2,15 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
-import { AlertMessage, ThemeIcon } from '@vasakgroup/vue-libvasak';
+import { ActionButton, AlertMessage, ThemeIcon } from '@vasakgroup/vue-libvasak';
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
-import AtajosComponent from '@/components/correo/AtajosComponent.vue';
-import CuentasComponent from '@/components/correo/CuentasComponent.vue';
-import DeshacerComponent from '@/components/correo/DeshacerComponent.vue';
-import ListaComponent from '@/components/correo/ListaComponent.vue';
-import MensajeComponent from '@/components/correo/MensajeComponent.vue';
-import PreferenciasComponent from '@/components/correo/PreferenciasComponent.vue';
-import RedactarComponent from '@/components/correo/RedactarComponent.vue';
+import ShortcutsComponent from '@/components/mail/ShortcutsComponent.vue';
+import AccountsComponent from '@/components/mail/AccountsComponent.vue';
+import UndoComponent from '@/components/mail/UndoComponent.vue';
+import MessageListComponent from '@/components/mail/MessageListComponent.vue';
+import MessageComponent from '@/components/mail/MessageComponent.vue';
+import PreferencesComponent from '@/components/mail/PreferencesComponent.vue';
+import ComposeComponent from '@/components/mail/ComposeComponent.vue';
 import { type Borrador, type Resumen, useCorreo } from '@/composables/use-correo';
 import { cargarPreferencias, usePreferencias } from '@/composables/use-preferencias';
 import WindowAppLayout from '@/layouts/WindowAppLayout.vue';
@@ -19,7 +19,7 @@ import { claveDe } from '@/tools/bandeja';
 import { nombreDeCasilla } from '@/tools/casillas';
 import { interpolar } from '@/tools/interpolar';
 import { aBorrador, type MailtoRequest } from '@/tools/mailto';
-import { panelVisible } from '@/tools/paneles';
+import { visiblePane } from '@/tools/panes';
 import { responder as armarRespuesta } from '@/tools/responder';
 
 const { t, locale } = useI18n();
@@ -233,7 +233,7 @@ const pidieronCarpetas = ref(false);
  * estado paralelo se desincroniza —abrir un mensaje con la tecla `j` y que el
  * panel no cambie— y la forma de que eso no pase es que no exista.
  */
-const panel = computed(() => panelVisible(abierto.value !== null, pidieronCarpetas.value));
+const panel = computed(() => visiblePane(abierto.value !== null, pidieronCarpetas.value));
 
 const { juegoDeAtajos } = usePreferencias();
 
@@ -306,7 +306,7 @@ function volverALaLista() {
 }
 
 /** La lista, para poder mandarle el foco al buscador. */
-const lista = ref<InstanceType<typeof ListaComponent> | null>(null);
+const lista = ref<InstanceType<typeof MessageListComponent> | null>(null);
 
 /**
  * Lleva el foco al buscador, esté donde esté el foco ahora.
@@ -319,15 +319,15 @@ const lista = ref<InstanceType<typeof ListaComponent> | null>(null);
  * para que el buscador exista en pantalla— y se reintenta.
  *
  * Preguntar el ancho sería la otra forma, y obligaría a que esta vista y las
- * clases `md:` de los componentes digan lo mismo en dos lugares.
+ * consultas de contenedor de los componentes digan lo mismo en dos lugares.
  */
-async function irAlBuscador() {
-	if (lista.value?.enfocarBuscador()) {
+async function goToSearch() {
+	if (lista.value?.focusSearch()) {
 		return;
 	}
 	volverALaLista();
 	await nextTick();
-	lista.value?.enfocarBuscador();
+	lista.value?.focusSearch();
 }
 
 function alApretar(evento: KeyboardEvent) {
@@ -377,7 +377,7 @@ function alApretar(evento: KeyboardEvent) {
 			elegirCasilla('INBOX');
 			break;
 		case 'buscar':
-			irAlBuscador();
+			goToSearch();
 			break;
 		case 'ayuda':
 			mostrandoAtajos.value = true;
@@ -487,26 +487,24 @@ onUnmounted(() => {
     <template #acciones>
       <!-- El estado de carga se dice, no se insinúa con un icono girando: sin
            esto, un servidor lento y una casilla vacía se ven igual. -->
-      <span v-if="cargandoLista" class="text-tx-muted text-xs" role="status">
+      <span v-if="cargandoLista" class="truncate text-body-xs text-tx-muted" role="status">
         {{ t('lista.cargando') }}
       </span>
-      <button
-        type="button"
-        class="rounded-corner border border-ui-border bg-ui-bg/80 px-2 py-1 text-sm hover:bg-ui-surface"
-        :aria-label="t('preferencias.titulo')"
+      <ActionButton
+        label=""
+        variant="ghost"
+        icon="preferences-system-symbolic"
+        :icon-alt="t('preferencias.titulo')"
         :title="t('preferencias.titulo')"
-        @click="mostrandoPreferencias = true">
-        ⚙
-      </button>
-      <button
-        type="button"
-        class="rounded-corner border border-ui-border bg-ui-bg/80 p-1 hover:bg-ui-surface disabled:opacity-50"
-        :aria-label="t('lista.actualizar')"
+        @click="mostrandoPreferencias = true" />
+      <ActionButton
+        label=""
+        variant="ghost"
+        icon="view-refresh-symbolic"
+        :icon-alt="t('lista.actualizar')"
         :title="t('lista.actualizar')"
         :disabled="cargandoLista"
-        @click="cargarCuentas()">
-        <ThemeIcon name="view-refresh" type="symbol" :size="24" />
-      </button>
+        @click="cargarCuentas()" />
     </template>
 
     <!-- Dónde se está parado, centrado en la barra entera y no en lo que sobra
@@ -515,9 +513,9 @@ onUnmounted(() => {
          `aria-live` porque al cambiar de carpeta es lo único que lo anuncia:
          quien no ve la lista no tiene otra pista de que cambió. -->
     <template #barraCentro>
-      <span class="flex items-baseline gap-2" aria-live="polite">
-        <span class="font-title text-base">{{ dondeEstoy.carpeta }}</span>
-        <span v-if="dondeEstoy.cuenta" class="max-w-56 truncate text-tx-muted text-xs">
+      <span class="flex min-w-0 items-baseline gap-2" aria-live="polite">
+        <span class="min-w-0 truncate font-title text-base">{{ dondeEstoy.carpeta }}</span>
+        <span v-if="dondeEstoy.cuenta" class="max-w-56 min-w-0 truncate text-body-xs text-tx-muted">
           {{ dondeEstoy.cuenta }}
         </span>
       </span>
@@ -526,17 +524,17 @@ onUnmounted(() => {
     <!-- `relative` porque la ventana de redacción va encima, no en una ventana
          aparte: escribir un correo es algo que se hace y se termina. -->
     <div class="relative flex min-h-0 flex-1 flex-col">
-      <AtajosComponent
+      <ShortcutsComponent
         :abierto="mostrandoAtajos"
         :mapa="mapaDeAtajos"
         @cerrar="mostrandoAtajos = false" />
-      <PreferenciasComponent
+      <PreferencesComponent
         :abierto="mostrandoPreferencias"
         @cerrar="mostrandoPreferencias = false" />
 
       <!-- La ventana para arrepentirse. Va sobre todo lo demás porque es lo
            único con tiempo: si no se ve, no sirve. -->
-      <DeshacerComponent
+      <UndoComponent
         :hasta="enCamino?.hasta ?? null"
         @deshacer="volverAAbrirLoQueSeMando"
         @vencio="olvidarEnvio" />
@@ -565,9 +563,17 @@ onUnmounted(() => {
       </AlertMessage>
 
       <!-- Las secciones separadas por aire y no por líneas: cada una es una
-           superficie redondeada, como los paneles del escritorio. -->
-      <div class="flex min-h-0 flex-1 gap-1 p-1">
-        <CuentasComponent
+           superficie redondeada, como los paneles del escritorio.
+
+           **La fila es el contenedor** (`@container/panes`) de las consultas
+           que deciden si entran los tres paneles o se ve uno por vez. Antes era
+           `md:` —el ancho de la pantalla—, que en el WebView no avisa al
+           cambiar y además no sabe si la barra de la ventana va a un costado.
+           El corte, `--container-three-panes` en `main.css`, es el mismo
+           ancho que daba `md:` medido en la fila: 768 px de ventana menos el
+           canto y el relleno, 758 px. -->
+      <div class="@container/panes flex min-h-0 flex-1 gap-1 p-1">
+        <AccountsComponent
           :panel="panel"
           :cuentas="cuentas"
           :elegida="elegida"
@@ -579,7 +585,7 @@ onUnmounted(() => {
           @elegir-casilla="elegirCarpeta"
           @escribir="escribir"
           @descartar="descartarSaliente" />
-        <ListaComponent
+        <MessageListComponent
           ref="lista"
           :panel="panel"
           :carpeta="dondeEstoy.carpeta"
@@ -596,7 +602,7 @@ onUnmounted(() => {
           @buscar="escribirEnElBuscador"
           @buscar-en-el-servidor="buscarEnElServidor"
           @limpiar="limpiarBusqueda" />
-        <MensajeComponent
+        <MessageComponent
           :panel="panel"
           :abierto="abierto"
           :cuerpo="cuerpo"
@@ -606,7 +612,7 @@ onUnmounted(() => {
           @volver="volverALaLista" />
       </div>
 
-      <RedactarComponent
+      <ComposeComponent
         v-if="redactando"
         :inicial="redactando"
         :es-respuesta="esRespuesta"

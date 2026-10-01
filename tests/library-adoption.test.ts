@@ -20,9 +20,9 @@
 import { afterEach, beforeAll, describe, expect, test } from 'bun:test';
 import { mount, type VueWrapper } from '@vue/test-utils';
 import { nextTick } from 'vue';
-import AtajosComponent from '@/components/correo/AtajosComponent.vue';
-import PreferenciasComponent from '@/components/correo/PreferenciasComponent.vue';
-import RedactarComponent from '@/components/correo/RedactarComponent.vue';
+import ShortcutsComponent from '@/components/mail/ShortcutsComponent.vue';
+import PreferencesComponent from '@/components/mail/PreferencesComponent.vue';
+import ComposeComponent from '@/components/mail/ComposeComponent.vue';
 import type { Borrador } from '@/composables/use-correo';
 import { juego } from '@/tools/atajos';
 import { olvidarTodo } from './dobles';
@@ -44,7 +44,7 @@ function anotar<T extends VueWrapper>(vista: T): T {
  * por tiempo sin tener nada roto. Acá se paga una vez y con su propio límite.
  */
 beforeAll(async () => {
-	const calentar = mount(AtajosComponent, {
+	const calentar = mount(ShortcutsComponent, {
 		props: { abierto: false, mapa: juego('gmail') },
 	});
 	calentar.unmount();
@@ -101,7 +101,7 @@ const BORRADOR: Borrador = {
 describe('la ayuda de atajos', () => {
 	function abrir() {
 		return anotar(
-			mount(AtajosComponent, {
+			mount(ShortcutsComponent, {
 				props: { abierto: true, mapa: juego('gmail') },
 				attachTo: document.body,
 			})
@@ -159,7 +159,7 @@ describe('la ayuda de atajos', () => {
 describe('las preferencias', () => {
 	test('también entran el foco y Escape', async () => {
 		const vista = anotar(
-			mount(PreferenciasComponent, { props: { abierto: true }, attachTo: document.body })
+			mount(PreferencesComponent, { props: { abierto: true }, attachTo: document.body })
 		);
 		await asentarse();
 
@@ -175,7 +175,7 @@ describe('las preferencias', () => {
 describe('la ventana de redacción', () => {
 	function abrir(esRespuesta = false, inicial: Borrador = BORRADOR) {
 		return anotar(
-			mount(RedactarComponent, {
+			mount(ComposeComponent, {
 				props: { inicial, esRespuesta, enviando: false, cuentas: [], cuenta: 'una' },
 				attachTo: document.body,
 			})

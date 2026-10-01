@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, jest, test } from 'bun:test';
 import { olvidarLosIconosDelTema } from '@vasakgroup/vue-libvasak';
 import { mount, type VueWrapper } from '@vue/test-utils';
 import { nextTick } from 'vue';
-import CorreoView from '@/views/CorreoView.vue';
+import MailView from '@/views/MailView.vue';
 import { emit, olvidarTodo, setThemeIcon } from './dobles';
 
 /**
@@ -59,7 +59,7 @@ const APP_ICON = 'internet-mail';
 let mounted: VueWrapper | null = null;
 
 function openMail() {
-	mounted = mount(CorreoView);
+	mounted = mount(MailView);
 	return mounted;
 }
 

@@ -11,8 +11,8 @@ import { join } from 'node:path';
  * `include` no entran al programa y **ninguno se comprueba**. Sale con 0 y no
  * dice nada.
  *
- * Esto no es hipotético acá: por eso `MensajeComponent.vue` y
- * `RedactarComponent.vue` llegaron a `main` usando cuatro nombres que nadie
+ * Esto no es hipotético acá: por eso `MessageComponent.vue` y
+ * `ComposeComponent.vue` llegaron a `main` usando cuatro nombres que nadie
  * importaba, y el paquete dejó de compilar en la tanda del repositorio. Lo
  * encontró `check-all.sh`, que corre `vue-tsc` por su cuenta y sin la bandera.
  *

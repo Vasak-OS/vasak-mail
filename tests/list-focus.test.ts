@@ -4,7 +4,7 @@
  * Es la prueba que el arreglo del foco no pudo traer consigo. En ese momento
  * `bun test` no compilaba `.vue`: el import devolvía la ruta como cadena y
  * `mount()` reventaba adentro de `@vue/test-utils` con un error que no nombra a
- * Vue por ningún lado. Lo que entró en su lugar —`foco.test.ts`— confronta los
+ * Vue por ningún lado. Lo que entró en su lugar —`focus.test.ts`— confronta los
  * selectores con la plantilla leída como texto, y cubre la regresión que
  * importa: que alguien mueva el `aria-current` y el selector deje de encontrar
  * la fila.
@@ -23,11 +23,16 @@
  * busca.
  */
 
-import { afterEach, beforeAll, describe, expect, test } from 'bun:test';
+import { afterEach, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { mount, type VueWrapper } from '@vue/test-utils';
-import ListaComponent from '@/components/correo/ListaComponent.vue';
+import MessageListComponent from '@/components/mail/MessageListComponent.vue';
 import type { Resumen } from '@/composables/use-correo';
+import { ROW_SELECTORS } from '@/tools/focus';
 import { olvidarTodo } from './dobles';
+
+// Con la máquina cargada, montar pasa los cinco segundos de fábrica sin nada
+// roto; lo que se mide acá es dónde termina el foco, no cuánto tarda.
+setDefaultTimeout(30_000);
 
 let vista: VueWrapper | null = null;
 
@@ -42,7 +47,7 @@ let vista: VueWrapper | null = null;
  * alguna se vuelve lenta, se nota.
  */
 beforeAll(async () => {
-	const calentar = mount(ListaComponent, { props: PROPS_BASE });
+	const calentar = mount(MessageListComponent, { props: PROPS_BASE });
 	calentar.unmount();
 }, 60_000);
 
@@ -68,7 +73,7 @@ function mensaje(uid: number, asunto: string): Resumen {
 
 /** Lo que el componente necesita para dibujarse; cada prueba cambia lo suyo. */
 const PROPS_BASE = {
-	panel: 'lista' as const,
+	panel: 'list' as const,
 	mensajes: [] as Resumen[],
 	abierto: null as Resumen | null,
 	cargando: false,
@@ -85,7 +90,7 @@ async function abrirConElBuscadorEnfocado(
 	mensajes: Resumen[],
 	abierto: Resumen | null = null
 ) {
-	vista = mount(ListaComponent, {
+	vista = mount(MessageListComponent, {
 		attachTo: document.body,
 		props: { ...PROPS_BASE, mensajes, abierto },
 	});
@@ -134,7 +139,7 @@ describe('Escape en el buscador', () => {
 		);
 		await escapar(campo);
 
-		const fila = v.find('li button[aria-current="true"]');
+		const fila = v.find(ROW_SELECTORS.open);
 		expect(fila.exists()).toBe(true);
 		expect(document.activeElement).toBe(fila.element);
 	});
@@ -146,7 +151,7 @@ describe('Escape en el buscador', () => {
 		]);
 		await escapar(campo);
 
-		expect(document.activeElement).toBe(v.findAll('li button')[0].element);
+		expect(document.activeElement).toBe(v.findAll(ROW_SELECTORS.first)[0].element);
 	});
 
 	test('con la lista vacía, el foco queda en el panel', async () => {
@@ -184,7 +189,7 @@ describe('el turno de espera', () => {
 		const todos = [mensaje(1, 'uno'), abierto, mensaje(3, 'tres')];
 
 		let lista: VueWrapper | null = null;
-		lista = mount(ListaComponent, {
+		lista = mount(MessageListComponent, {
 			attachTo: document.body,
 			props: {
 				...PROPS_BASE,
@@ -201,7 +206,7 @@ describe('el turno de espera', () => {
 		(campo.element as HTMLInputElement).focus();
 		await escapar(campo);
 
-		const fila = lista.find('li button[aria-current="true"]');
+		const fila = lista.find(ROW_SELECTORS.open);
 		expect(fila.exists()).toBe(true);
 		expect(fila.text()).toContain('el que estaba leyendo');
 		expect(document.activeElement).toBe(fila.element);

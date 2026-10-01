@@ -1,17 +1,26 @@
 <script lang="ts" setup>
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
-import { SearchField } from '@vasakgroup/vue-libvasak';
+import {
+	ActionButton,
+	EmptyState,
+	ListRow,
+	LoadingState,
+	Panel,
+	SearchField,
+	StatusDot,
+	ThemeIcon,
+} from '@vasakgroup/vue-libvasak';
 import { computed, nextTick, ref, watch } from 'vue';
 import type { Cuenta, Resumen } from '@/composables/use-correo';
 import { claveDe, esElMismo } from '@/tools/bandeja';
 import type { Alcance } from '@/tools/busqueda';
 import { cuando } from '@/tools/fecha';
-import { aQuienEnfocar, SELECTORES } from '@/tools/foco';
-import { hayQueRescatarElFoco, type Panel } from '@/tools/paneles';
+import { pickFocusTarget, ROW_SELECTORS } from '@/tools/focus';
+import { type Pane, paneVisibility, shouldRescueFocus } from '@/tools/panes';
 
 const props = defineProps<{
 	/** Cuál de los tres paneles se ve. Sólo importa en una ventana angosta. */
-	panel: Panel;
+	panel: Pane;
 	mensajes: Resumen[];
 	abierto: Resumen | null;
 	cargando: boolean;
@@ -40,15 +49,31 @@ const { t, locale } = useI18n();
 /**
  * El botón de la carpeta, para recuperar el foco al volver a la lista.
  *
- * Mismo truco que el de volver en el mensaje: es `md:hidden`, así que enfocarlo
- * en una ventana ancha no hace nada y no hay que preguntar por el ancho. Sin
- * esto, al volver de un mensaje el foco se queda en un botón que ya no está en
- * pantalla y quien navega con el teclado empieza de nuevo desde arriba de todo.
+ * Mismo truco que el de volver en el mensaje: se esconde cuando entran los tres
+ * paneles —por la consulta de contenedor `@three-panes/panes:hidden`—, así que
+ * enfocarlo en una ventana ancha no hace nada y no hay que preguntar por el
+ * ancho. Sin esto, al volver de un mensaje el foco se queda en un botón que ya
+ * no está en pantalla y quien navega con el teclado empieza de nuevo desde
+ * arriba de todo.
+ *
+ * Es el `ActionButton` de la librería, que no expone el elemento: se alcanza
+ * por `$el`, que es el `<button>` mismo.
  */
-const botonCarpeta = ref<HTMLButtonElement | null>(null);
+const folderButton = ref<InstanceType<typeof ActionButton> | null>(null);
 
 /** El panel entero, para poder preguntar si el foco cayó adentro. */
-const raiz = ref<HTMLElement | null>(null);
+const root = ref<InstanceType<typeof Panel> | null>(null);
+
+/**
+ * El panel se puede enfocar desde el código pero no con el Tab: es el último
+ * recurso de `pickFocusTarget` cuando la lista está vacía. Va por `v-bind`
+ * porque `Panel` no declara `tabindex` y lo pasa como atributo.
+ */
+const FOCUSABLE_ROOT = { tabindex: -1 } as const;
+
+function rootElement(): HTMLElement | null {
+	return (root.value?.$el as HTMLElement | undefined) ?? null;
+}
 
 watch(
 	() => props.panel,
@@ -56,15 +81,15 @@ watch(
 		await nextTick();
 		// Se pregunta **después** del `nextTick`, no antes: en ese rato el panel
 		// se dibujó y alguien más pudo haber puesto el foco donde quería. Ver
-		// `hayQueRescatarElFoco`, que es donde está el porqué.
-		const adentro = raiz.value?.contains(document.activeElement) ?? false;
-		if (hayQueRescatarElFoco(ahora, antes, adentro)) {
-			botonCarpeta.value?.focus();
+		// `shouldRescueFocus`, que es donde está el porqué.
+		const inside = rootElement()?.contains(document.activeElement) ?? false;
+		if (shouldRescueFocus(ahora, antes, inside)) {
+			(folderButton.value?.$el as HTMLElement | undefined)?.focus();
 		}
 	}
 );
 
-const buscador = ref<InstanceType<typeof SearchField> | null>(null);
+const search = ref<InstanceType<typeof SearchField> | null>(null);
 
 /**
  * Pone el foco en el buscador, y **dice si lo consiguió**.
@@ -78,11 +103,11 @@ const buscador = ref<InstanceType<typeof SearchField> | null>(null);
  * Enfocar y comprobar lo hace ahora el campo, que es quien tiene el elemento:
  * acá alcanzarlo pediría `$el`, que es `any`.
  */
-function enfocarBuscador(): boolean {
-	return buscador.value?.enfocar() ?? false;
+function focusSearch(): boolean {
+	return search.value?.focus() ?? false;
 }
 
-defineExpose({ enfocarBuscador });
+defineExpose({ focusSearch });
 
 /**
  * Escape en el buscador: limpia **y** devuelve el foco a la lista.
@@ -97,16 +122,16 @@ defineExpose({ enfocarBuscador });
  * filtro escondía vuelven, y la del mensaje abierto puede no ser la misma de
  * antes. Enfocar antes de eso apuntaría a una fila que está por desaparecer.
  */
-async function alEscaparDelBuscador() {
+async function leaveSearch() {
 	emit('limpiar');
 	await nextTick();
-	const fila = (selector: string) => raiz.value?.querySelector<HTMLElement>(selector) ?? null;
-	aQuienEnfocar({
+	const row = (selector: string) => rootElement()?.querySelector<HTMLElement>(selector) ?? null;
+	pickFocusTarget({
 		// `aria-current` ya marca cuál está abierto: se lee de la plantilla en vez
 		// de llevar una segunda cuenta de lo mismo.
-		abierto: fila(SELECTORES.abierto),
-		primero: fila(SELECTORES.primero),
-		contenedor: raiz.value,
+		open: row(ROW_SELECTORS.open),
+		first: row(ROW_SELECTORS.first),
+		container: rootElement(),
 	})?.focus();
 }
 
@@ -136,23 +161,31 @@ function cuentaDe(mensaje: Resumen): string {
 </script>
 
 <template>
-  <div
-    ref="raiz"
-    tabindex="-1"
-    class="w-full shrink-0 flex-col overflow-y-auto rounded-corner border border-ui-border bg-ui-surface/45 md:flex md:w-80"
-    :class="panel === 'lista' ? 'flex' : 'hidden'">
+  <Panel
+    ref="root"
+    v-bind="FOCUSABLE_ROOT"
+    padding="none"
+    scroll
+    class="w-full shrink-0 @three-panes/panes:w-80"
+    :class="paneVisibility('list', panel)">
+    <!-- La lista ocupa todo el ancho cuando va sola y 20rem cuando entran los
+         tres paneles. Cuál se ve en angosto lo decide `panel`; «angosto» lo
+         decide la fila de la ventana (`@container/panes` en `MailView.vue`), no
+         la pantalla. -->
     <!-- El nombre de la carpeta como botón, sólo en angosto: es por donde se
          llega a la lista de carpetas. Un botón con el nombre adentro dice a
          dónde lleva y qué se está mirando; un icono de menú, ninguna de las
-         dos. De `md` para arriba las carpetas están al lado. -->
-    <button
-      ref="botonCarpeta"
-      type="button"
-      class="flex items-center gap-1 border-ui-border border-b px-3 py-2 text-left text-sm hover:bg-ui-surface md:hidden"
-      @click="emit('carpetas')">
-      <span class="truncate font-medium">{{ carpeta }}</span>
-      <span class="text-tx-muted text-xs">▾</span>
-    </button>
+         dos. Cuando entran los tres, las carpetas están al lado. -->
+    <div class="border-ui-line-weak border-b p-1 @three-panes/panes:hidden">
+      <ActionButton
+        ref="folderButton"
+        :label="carpeta"
+        variant="ghost"
+        icon="pan-down-symbolic"
+        icon-right
+        class="max-w-full justify-start"
+        @click="emit('carpetas')" />
+    </div>
 
     <!-- El buscador. Mientras se escribe filtra lo que ya está, que es
          instantáneo; con Enter se le pregunta al servidor, que es el único que
@@ -164,93 +197,92 @@ function cuentaDe(mensaje: Resumen): string {
 
          Escape no lo decide el campo, a propósito: qué significa depende de
          dónde viva. Acá limpia y devuelve el foco a la lista. -->
-    <div class="border-ui-border border-b p-2">
+    <div class="border-ui-line-weak border-b p-2">
       <SearchField
-        ref="buscador"
+        ref="search"
         :model-value="consulta"
         :placeholder="t('buscar.campo')"
         :label="t('buscar.campo')"
         :busy="buscandoEnElServidor"
         @update:model-value="(texto: string) => emit('buscar', texto)"
         @search="emit('buscarEnElServidor')"
-        @clear="alEscaparDelBuscador"
-        @keydown.escape="alEscaparDelBuscador" />
+        @clear="leaveSearch"
+        @keydown.escape="leaveSearch" />
 
       <!-- **Decir qué se está mostrando no es cosmético.** «Los últimos
            doscientos que coinciden» y «todo lo que el servidor encontró» son
            respuestas distintas a la misma pregunta, y sin esto la lista cambia
            de significado sin aviso: alguien concluye que un mensaje no existe
            cuando lo que pasa es que está más atrás. -->
-      <p v-if="buscandoEnElServidor" class="mt-1 text-tx-muted text-xs" role="status">
+      <p v-if="buscandoEnElServidor" class="mt-1 text-body-xs text-tx-muted" role="status">
         {{ t('buscar.preguntando') }}
       </p>
-      <p v-else-if="queSeVe === 'local'" class="mt-1 text-tx-muted text-xs">
+      <p v-else-if="queSeVe === 'local'" class="mt-1 text-body-xs text-tx-muted">
         {{ t('buscar.soloLoQueEsta') }}
       </p>
-      <p v-else-if="queSeVe === 'servidor'" class="mt-1 text-tx-muted text-xs" role="status">
+      <p v-else-if="queSeVe === 'servidor'" class="mt-1 text-body-xs text-tx-muted" role="status">
         {{ t('buscar.delServidor') }}
       </p>
     </div>
 
-    <p v-if="cargando && !hayAlgo" class="p-3 text-tx-muted text-sm" role="status">
-      {{ t('lista.cargando') }}
-    </p>
-    <p v-else-if="!hayAlgo" class="p-3 text-tx-muted text-sm">{{ t('lista.vacia') }}</p>
+    <LoadingState v-if="cargando && !hayAlgo" size="sm" :label="t('lista.cargando')" />
+    <!-- Sin icono: el panel es angosto y la frase ya dice todo. -->
+    <EmptyState v-else-if="!hayAlgo" size="sm" icon="" :title="t('lista.vacia')" />
 
-    <ul v-else class="flex flex-col">
+    <ul v-else class="flex flex-col gap-0.5 p-1">
       <!-- La clave es `(cuenta, carpeta, uid)` y no el `uid`: en la combinada
            el 7 de una cuenta y el 7 de otra son dos mensajes distintos, y con
-           claves repetidas Vue reusa el nodo equivocado al actualizar. -->
+           claves repetidas Vue reusa el nodo equivocado al actualizar.
+
+           `role="button"` y `selected`: es `ListRow` la que pone el
+           `aria-current` en la fila abierta, y lo que buscan los selectores de
+           `tools/focus.ts`. -->
       <li v-for="mensaje in mensajes" :key="claveDe(mensaje)">
-        <button
-          type="button"
-          class="flex w-full flex-col gap-0.5 border-ui-border border-b px-3 py-2 text-left hover:bg-ui-surface/60"
-          :class="{ 'bg-ui-surface': esElMismo(mensaje, abierto) }"
-          :aria-current="esElMismo(mensaje, abierto) ? 'true' : undefined"
+        <ListRow
+          role="button"
+          :selected="esElMismo(mensaje, abierto)"
           @click="emit('abrir', mensaje)">
-          <div class="flex w-full items-baseline gap-2">
+          <span class="flex w-full min-w-0 items-center gap-2">
             <!-- Sin leer se marca con el punto **y** con la negrita: el color
                  solo no se ve si no se distinguen los colores (WCAG 1.4.1), y
                  esto es lo que separa lo que falta leer de lo que no.
 
-                 Con `role="img"`, que no es decoración: un `aria-label` sobre un
-                 `span` pelado **no se expone**, porque un elemento sin rol no
-                 admite nombre accesible. Sin el rol, el punto y el clip eran
-                 invisibles para un lector de pantalla y toda la marca de «sin
-                 leer» quedaba puesta en el color. -->
+                 Con nombre: `StatusDot` con `label` se expone como imagen con
+                 nombre accesible, que es lo que hacía falta para que la marca
+                 de «sin leer» no quedara puesta sólo en el color. -->
+            <StatusDot v-if="mensaje.sin_leer" tone="accent" :label="t('lista.noLeido')" />
             <span
-              v-if="mensaje.sin_leer"
-              class="h-2 w-2 shrink-0 rounded-full bg-primary"
-              role="img"
-              :aria-label="t('lista.noLeido')"></span>
-            <span
-              class="flex-1 truncate text-sm"
-              :class="mensaje.sin_leer ? 'font-semibold' : ''"
+              class="min-w-0 flex-1 truncate text-label-m"
+              :class="mensaje.sin_leer ? 'font-semibold' : 'font-normal'"
               :title="`${mensaje.de} <${mensaje.direccion}>`">
               {{ mensaje.de }}
             </span>
-            <span class="shrink-0 text-tx-muted text-xs tabular-nums">
+            <span class="shrink-0 text-label-xs font-normal text-tx-muted tabular-nums">
               {{ cuandoLlego(mensaje.fecha) }}
             </span>
-          </div>
-          <div class="flex w-full items-center gap-1">
-            <span class="flex-1 truncate text-sm" :class="mensaje.sin_leer ? '' : 'text-tx-muted'">
+          </span>
+          <span class="flex w-full min-w-0 items-center gap-1">
+            <span
+              class="min-w-0 flex-1 truncate text-body-s font-normal"
+              :class="mensaje.sin_leer ? '' : 'text-tx-muted'">
               {{ mensaje.asunto || t('lista.sinAsunto') }}
             </span>
             <span
               v-if="mensaje.con_adjuntos"
-              class="shrink-0 text-tx-muted text-xs"
+              class="shrink-0"
               :title="t('lista.conAdjuntos')"
               role="img"
-              :aria-label="t('lista.conAdjuntos')">📎</span>
-          </div>
+              :aria-label="t('lista.conAdjuntos')">
+              <ThemeIcon name="mail-attachment-symbolic" type="symbol" :size="16" />
+            </span>
+          </span>
           <!-- De qué cuenta es. Sólo cuando están todas juntas: con una sola a
                la vista, repetir su nombre en cada fila es ruido. -->
-          <span v-if="cuentaDe(mensaje)" class="truncate text-tx-muted text-xs">
+          <span v-if="cuentaDe(mensaje)" class="truncate text-body-xs font-normal text-tx-muted">
             {{ cuentaDe(mensaje) }}
           </span>
-        </button>
+        </ListRow>
       </li>
     </ul>
-  </div>
+  </Panel>
 </template>
