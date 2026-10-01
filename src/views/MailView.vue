@@ -4,13 +4,13 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import { ActionButton, AlertMessage, ThemeIcon } from '@vasakgroup/vue-libvasak';
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
-import ShortcutsComponent from '@/components/mail/ShortcutsComponent.vue';
 import AccountsComponent from '@/components/mail/AccountsComponent.vue';
-import UndoComponent from '@/components/mail/UndoComponent.vue';
-import MessageListComponent from '@/components/mail/MessageListComponent.vue';
-import MessageComponent from '@/components/mail/MessageComponent.vue';
-import PreferencesComponent from '@/components/mail/PreferencesComponent.vue';
 import ComposeComponent from '@/components/mail/ComposeComponent.vue';
+import MessageComponent from '@/components/mail/MessageComponent.vue';
+import MessageListComponent from '@/components/mail/MessageListComponent.vue';
+import PreferencesComponent from '@/components/mail/PreferencesComponent.vue';
+import ShortcutsComponent from '@/components/mail/ShortcutsComponent.vue';
+import UndoComponent from '@/components/mail/UndoComponent.vue';
 import { type Borrador, type Resumen, useCorreo } from '@/composables/use-correo';
 import { cargarPreferencias, usePreferencias } from '@/composables/use-preferencias';
 import WindowAppLayout from '@/layouts/WindowAppLayout.vue';
@@ -19,7 +19,7 @@ import { claveDe } from '@/tools/bandeja';
 import { nombreDeCasilla } from '@/tools/casillas';
 import { interpolar } from '@/tools/interpolar';
 import { aBorrador, type MailtoRequest } from '@/tools/mailto';
-import { visiblePane } from '@/tools/panes';
+import { panesOnScreen, visiblePane } from '@/tools/panes';
 import { responder as armarRespuesta } from '@/tools/responder';
 
 const { t, locale } = useI18n();
@@ -305,6 +305,28 @@ function volverALaLista() {
 	cerrar();
 }
 
+/**
+ * Si la fila de los paneles es angosta, medida con un `ResizeObserver`.
+ *
+ * Los paneles no la necesitan —se esconden solos por la consulta de
+ * contenedor—, pero la barra sí: dónde se está parado va **centrado en la
+ * ventana**, en una capa absoluta que no sabe cuánto ocupan los botones, y en
+ * una ventana angosta quedaba encima de ellos. En angosto pasa a la zona libre
+ * de la barra, donde se recorta en vez de pisar. Se mide la fila y no la
+ * pantalla porque en el WebView ni `matchMedia` ni `resize` avisan, y el corte
+ * es el mismo de los paneles (`panesOnScreen`).
+ *
+ * Arranca en ancho: es lo que se ve si el observador no existe, como en las
+ * pruebas, y lo que había antes.
+ */
+const paneRow = ref<HTMLElement | null>(null);
+const narrow = ref(false);
+let rowObserver: ResizeObserver | null = null;
+
+function measureRow(width: number) {
+	narrow.value = panesOnScreen(width, 'list').length === 1;
+}
+
 /** La lista, para poder mandarle el foco al buscador. */
 const lista = ref<InstanceType<typeof MessageListComponent> | null>(null);
 
@@ -399,6 +421,13 @@ let dejarDeEscucharMailto: UnlistenFn | null = null;
 let desmontada = false;
 
 onMounted(async () => {
+	if (typeof ResizeObserver !== 'undefined' && paneRow.value) {
+		rowObserver = new ResizeObserver(([entry]) => {
+			if (entry) measureRow(entry.contentRect.width);
+		});
+		rowObserver.observe(paneRow.value);
+	}
+
 	// Antes que nada: la vista por omisión y el juego de atajos se usan desde el
 	// primer mensaje que se abra y desde la primera tecla que se apriete.
 	// Leerlas después dejaría la primera interacción con los valores de siempre.
@@ -461,6 +490,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
 	desmontada = true;
+	rowObserver?.disconnect();
 	window.removeEventListener('keydown', alApretar);
 	dejarDeEscuchar?.();
 	dejarDeEscucharMailto?.();
@@ -512,10 +542,21 @@ onUnmounted(() => {
 
          `aria-live` porque al cambiar de carpeta es lo único que lo anuncia:
          quien no ve la lista no tiene otra pista de que cambió. -->
-    <template #barraCentro>
+    <template v-if="!narrow" #barraCentro>
       <span class="flex min-w-0 items-baseline gap-2" aria-live="polite">
         <span class="min-w-0 truncate font-title text-base">{{ dondeEstoy.carpeta }}</span>
         <span v-if="dondeEstoy.cuenta" class="max-w-56 min-w-0 truncate text-body-xs text-tx-muted">
+          {{ dondeEstoy.cuenta }}
+        </span>
+      </span>
+    </template>
+    <!-- En angosto, lo mismo en la zona libre de la barra: ocupa lo que haya
+         entre el icono y los botones y se recorta, en vez de quedar centrado
+         encima de ellos. Ver `narrow`. -->
+    <template v-else #barra>
+      <span class="flex min-w-0 flex-1 flex-col leading-tight" aria-live="polite">
+        <span class="truncate font-title text-label-m">{{ dondeEstoy.carpeta }}</span>
+        <span v-if="dondeEstoy.cuenta" class="truncate text-body-xs text-tx-muted">
           {{ dondeEstoy.cuenta }}
         </span>
       </span>
@@ -572,7 +613,7 @@ onUnmounted(() => {
            El corte, `--container-three-panes` en `main.css`, es el mismo
            ancho que daba `md:` medido en la fila: 768 px de ventana menos el
            canto y el relleno, 758 px. -->
-      <div class="@container/panes flex min-h-0 flex-1 gap-1 p-1">
+      <div ref="paneRow" class="@container/panes flex min-h-0 flex-1 gap-1 p-1">
         <AccountsComponent
           :panel="panel"
           :cuentas="cuentas"

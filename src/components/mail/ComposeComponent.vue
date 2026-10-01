@@ -253,8 +253,11 @@ function cerrar() {
 
 <template>
   <Dialog :open="true" @update:open="cerrar()">
-    <DialogContent size="lg" class="max-h-full">
-      <form class="flex max-h-full min-w-0 flex-col gap-2" @submit.prevent="enviar()">
+    <DialogContent size="lg" class="flex max-h-full flex-col">
+      <!-- `overflow-y-auto`: en una ventana baja o angosta el formulario no
+           entra entero, y antes los botones de abajo quedaban cortados fuera
+           del panel, sin forma de llegar a «Enviar». Ahora se desplaza. -->
+      <form class="flex max-h-full min-h-0 min-w-0 flex-col gap-2 overflow-y-auto" @submit.prevent="enviar()">
         <DialogTitle class="font-title">
           {{ esRespuesta ? t('redactar.tituloRespuesta') : t('redactar.titulo') }}
         </DialogTitle>
@@ -296,7 +299,7 @@ function cerrar() {
           <TextInput :id="id" v-model="asunto" autocomplete="off" />
         </FormGroup>
 
-        <FormGroup v-slot="{ id }" :label="t('redactar.cuerpo')" custom-class="min-h-0 flex-1 gap-0.5">
+        <FormGroup v-slot="{ id }" :label="t('redactar.cuerpo')" custom-class="flex-1 shrink-0 gap-0.5">
           <TextArea
             :id="id"
             ref="bodyField"

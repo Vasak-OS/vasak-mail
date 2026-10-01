@@ -238,3 +238,56 @@ describe('en angosto, una columna por vez y siempre con vuelta', () => {
 		expect(folderRow?.find('button').exists()).toBe(true);
 	});
 });
+
+describe('la barra en angosto', () => {
+	/**
+	 * Un `ResizeObserver` de mentira que contesta el ancho que se le pida.
+	 *
+	 * happy-dom no mide nada; el de verdad, en el WebView, avisa con la primera
+	 * medición y con cada cambio.
+	 */
+	function fakeObserver(width: number) {
+		const original = globalThis.ResizeObserver;
+		globalThis.ResizeObserver = class {
+			constructor(private readonly callback: ResizeObserverCallback) {}
+			observe() {
+				this.callback(
+					[{ contentRect: { width } } as ResizeObserverEntry],
+					this as unknown as ResizeObserver
+				);
+			}
+			unobserve() {}
+			disconnect() {}
+		} as unknown as typeof ResizeObserver;
+		return () => {
+			globalThis.ResizeObserver = original;
+		};
+	}
+
+	function barSlots(window: VueWrapper) {
+		const layout = window.findComponent({ name: 'WindowAppLayout' });
+		return Object.keys(layout.vm.$slots);
+	}
+
+	test('en ancho, dónde se está parado va centrado, como siempre', async () => {
+		const restore = fakeObserver(1190);
+		try {
+			const window = await openWindow();
+			expect(barSlots(window)).toContain('barraCentro');
+			expect(barSlots(window)).not.toContain('barra');
+		} finally {
+			restore();
+		}
+	});
+
+	test('en angosto pasa a la zona libre, donde se recorta en vez de pisar los botones', async () => {
+		const restore = fakeObserver(350);
+		try {
+			const window = await openWindow();
+			expect(barSlots(window)).toContain('barra');
+			expect(barSlots(window)).not.toContain('barraCentro');
+		} finally {
+			restore();
+		}
+	});
+});

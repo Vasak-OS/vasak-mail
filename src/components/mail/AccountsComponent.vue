@@ -1,6 +1,13 @@
 <script lang="ts" setup>
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
-import { ActionButton, Badge, EmptyState, ListRow, Panel, SectionHeading } from '@vasakgroup/vue-libvasak';
+import {
+	ActionButton,
+	Badge,
+	EmptyState,
+	ListRow,
+	Panel,
+	SectionHeading,
+} from '@vasakgroup/vue-libvasak';
 import { computed } from 'vue';
 import OutboxComponent from '@/components/mail/OutboxComponent.vue';
 import type { Casilla, Cuenta, Saliente } from '@/composables/use-correo';

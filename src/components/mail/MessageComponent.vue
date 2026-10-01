@@ -2,7 +2,14 @@
 import { invoke } from '@tauri-apps/api/core';
 import { save as guardarDialogo } from '@tauri-apps/plugin-dialog';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
-import { ActionButton, AlertMessage, EmptyState, ListRow, LoadingState, Panel } from '@vasakgroup/vue-libvasak';
+import {
+	ActionButton,
+	AlertMessage,
+	EmptyState,
+	ListRow,
+	LoadingState,
+	Panel,
+} from '@vasakgroup/vue-libvasak';
 import { computed, nextTick, ref, watch } from 'vue';
 import type { Abierto, Adjunto, Resumen } from '@/composables/use-correo';
 import { usePreferencias } from '@/composables/use-preferencias';

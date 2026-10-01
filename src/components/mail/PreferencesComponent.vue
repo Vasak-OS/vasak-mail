@@ -59,7 +59,9 @@ onMounted(async () => {
 });
 
 /** Las opciones de cada grupo, ya traducidas. */
-const detailOptions = computed(() => LEVELS.map((value) => ({ value, label: t(`preferencias.${value}`) })));
+const detailOptions = computed(() =>
+	LEVELS.map((value) => ({ value, label: t(`preferencias.${value}`) }))
+);
 const viewOptions = computed(() =>
 	['formato', 'texto'].map((value) => ({ value, label: t(`preferencias.vista_${value}`) }))
 );

@@ -62,12 +62,15 @@ const shortcuts = computed(() =>
       </DialogHeader>
 
       <ul class="flex flex-col gap-1.5 text-body-s">
-        <li v-for="a in shortcuts" :key="a.accion" class="flex min-w-0 items-baseline justify-between gap-3">
-          <span class="min-w-0 break-words text-tx-main">{{ a.what }}</span>
+        <li v-for="a in shortcuts" :key="a.accion" class="flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <!-- `min-w-24` y la fila que baja: en un diálogo angosto las teclas
+               pasan abajo en lugar de dejar el nombre en una columna de una
+               letra. -->
+          <span class="min-w-24 flex-1 break-words text-tx-main">{{ a.what }}</span>
           <!-- Cada tecla, o secuencia de teclas, es una alternativa: van una al
                lado de la otra y no unidas con «+», que sería decir que se
                aprietan juntas. -->
-          <span class="flex shrink-0 flex-wrap justify-end gap-1">
+          <span class="ml-auto flex shrink-0 flex-wrap justify-end gap-1">
             <Kbd v-for="tecla in a.teclas" :key="tecla">{{ tecla }}</Kbd>
           </span>
         </li>
