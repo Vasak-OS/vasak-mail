@@ -78,12 +78,38 @@ app.config.errorHandler = (error, _instancia, info) => {
 // `package.json` pida `^2.3.0` y no `^2.1.0`: con la vieja, esto se monta con
 // las claves a la vista.
 //
+// Un intento que falla se reintenta —el backend puede tardar o no escuchar a la
+// primera—. No lleva plazo propio: el que pone el límite es `esperarArranque`,
+// que acota el arranque completo y ya devuelve `false` si algo no terminó a
+// tiempo.
+//
 // El tema venía del `onMounted` de `App.vue`, o sea después del primer dibujo:
 // hasta que resolvía, las variables `--use-*` no existían y el `@theme` de la
 // hoja de estilo caía en los valores por omisión, que son los del tema claro.
 // Acá se lee antes de montar, y `App.vue` se queda sólo con el aviso de cambios.
+async function cargarTraducciones(): Promise<void> {
+	const MAX_INTENTOS = 3;
+	const ESPERA_BASE_MS = 500;
+	const ESPERA_MAX_MS = 2000;
+
+	for (let intento = 0; intento < MAX_INTENTOS; intento++) {
+		try {
+			await I18n.getInstance().load();
+			return;
+		} catch (error) {
+			console.error(
+				`No se pudieron cargar las traducciones (intento ${intento + 1}/${MAX_INTENTOS}):`,
+				error
+			);
+			if (intento === MAX_INTENTOS - 1) return;
+			const espera = Math.min(ESPERA_BASE_MS * 2 ** intento, ESPERA_MAX_MS);
+			await new Promise((resolve) => setTimeout(resolve, espera));
+		}
+	}
+}
+
 const arranqueCompleto = await esperarArranque(
-	[I18n.getInstance().load(), useConfigStore().loadConfig()],
+	[cargarTraducciones(), useConfigStore().loadConfig()],
 	PLAZO_ARRANQUE_MS
 );
 
