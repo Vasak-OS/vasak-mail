@@ -85,6 +85,20 @@ pub struct Resumen {
     pub fecha: String,
     pub sin_leer: bool,
     pub con_adjuntos: bool,
+    /// El número del mensaje en el almacén del sistema, si salió de ahí. Es lo
+    /// que permite abrirlo sin ir al servidor; `None` si la lista vino en vivo.
+    #[serde(default)]
+    pub id_almacen: Option<i64>,
+}
+
+/// El HTML de un mensaje, **ya saneado** por el sincronizador.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct Saneado {
+    pub html: String,
+    #[serde(default)]
+    pub imagenes_bloqueadas: u32,
+    #[serde(default)]
+    pub recortado: bool,
 }
 
 /// Un mensaje abierto.
@@ -106,6 +120,13 @@ pub struct Abierto {
     /// quedó más allá del corte no aparece. Lo cubre el aviso de que el mensaje
     /// está recortado, que la ventana ya tiene que dar igual.
     pub adjuntos: Vec<Adjunto>,
+    /// El mismo mensaje con su formato, ya saneado, o `None` si no traía HTML.
+    ///
+    /// Faltaba en este tipo, y como lo que no está en el tipo se descarta al
+    /// leer la respuesta, el HTML que mandaba el servicio nunca llegaba a la
+    /// ventana: la vista con formato no aparecía nunca.
+    #[serde(default)]
+    pub con_formato: Option<Saneado>,
     /// El identificador del mensaje, para enganchar la respuesta a la
     /// conversación. Vacío si el mensaje no traía uno, que pasa.
     #[serde(default)]
@@ -118,6 +139,15 @@ pub struct Abierto {
     #[serde(default)]
     pub nombre: String,
 }
+
+/// El almacén del sistema: lo que el sincronizador ya trajo y guardó cifrado.
+/// Mismo nombre de bus, otro objeto. Ver `store_api.rs` de `vasak-accounts`.
+const RUTA_ALMACEN: &str = "/ar/net/vasak/os/AccountsStore";
+const INTERFAZ_ALMACEN: &str = "ar.net.vasak.os.AccountsStore";
+
+/// Cuántos mensajes se piden del almacén por casilla: los mismos que mostraba
+/// la lista en vivo.
+const PAGINA: u32 = 200;
 
 async fn conectar() -> Result<zbus::Connection, String> {
     // El bus de sesión y no el del sistema: el sincronizador es un servicio del
@@ -145,6 +175,244 @@ where
         .map_err(|e| format!("respuesta inválida de {metodo}: {e}"))
 }
 
+/// Llama a un método del almacén.
+///
+/// **Sin tope de tiempo** —zbus no pone uno—, a propósito: la primera lectura
+/// puede abrir el diálogo de permiso de `vasak-permissions`, y la respuesta
+/// llega cuando la persona lo cierra.
+async fn llamar_almacen<A>(metodo: &str, argumentos: &A) -> Result<String, String>
+where
+    A: serde::ser::Serialize + zbus::zvariant::DynamicType,
+{
+    conectar()
+        .await?
+        .call_method(
+            Some(SERVICIO),
+            RUTA_ALMACEN,
+            Some(INTERFAZ_ALMACEN),
+            metodo,
+            argumentos,
+        )
+        .await
+        .map_err(|e| format!("{metodo}: {e}"))?
+        .body()
+        .deserialize()
+        .map_err(|e| format!("respuesta inválida de {metodo}: {e}"))
+}
+
+/// Una casilla tal como la guarda el almacén.
+#[derive(Debug, Clone, Deserialize)]
+struct CasillaGuardada {
+    id: i64,
+    name: String,
+    display_name: String,
+    role: String,
+}
+
+/// Un mensaje de la lista del almacén.
+#[derive(Debug, Clone, Deserialize)]
+struct ResumenGuardado {
+    id: i64,
+    uid: u64,
+    from_addr: String,
+    subject: String,
+    date_ts: i64,
+    flags_seen: bool,
+    has_attachments: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct PaginaGuardada {
+    items: Vec<ResumenGuardado>,
+}
+
+/// Un adjunto como lo guarda el almacén.
+#[derive(Debug, Clone, Deserialize)]
+struct AdjuntoGuardado {
+    part_number: String,
+    #[serde(default)]
+    name: Option<String>,
+    content_type: String,
+}
+
+/// Un mensaje entero del almacén.
+#[derive(Debug, Clone, Deserialize)]
+struct MensajeGuardado {
+    #[serde(default)]
+    message_id: Option<String>,
+    from_addr: String,
+    #[serde(default)]
+    reply_to: Option<String>,
+    #[serde(default)]
+    text_body: Option<String>,
+    #[serde(default)]
+    html_body: Option<String>,
+    #[serde(default)]
+    truncated: bool,
+    #[serde(default)]
+    attachments: Vec<AdjuntoGuardado>,
+}
+
+/// El uso de una casilla, en las palabras de la ventana, a partir del rol que
+/// guarda el almacén.
+pub fn uso_de_rol(rol: &str) -> &'static str {
+    match rol {
+        "inbox" => "entrada",
+        "sent" => "enviados",
+        "drafts" => "borradores",
+        "trash" => "papelera",
+        "junk" => "spam",
+        "archive" => "archivo",
+        _ => "ninguno",
+    }
+}
+
+/// Separa `Nombre <dirección>` en sus dos partes, como las muestra la lista:
+/// el nombre **y** la dirección, nunca sólo el nombre.
+pub fn separar_remitente(texto: &str) -> (String, String) {
+    let texto = texto.trim();
+    if let (Some(abre), true) = (texto.rfind('<'), texto.ends_with('>')) {
+        let nombre = texto[..abre].trim().trim_matches('"').trim().to_string();
+        let direccion = texto[abre + 1..texto.len() - 1].trim().to_string();
+        let nombre = if nombre.is_empty() {
+            direccion.clone()
+        } else {
+            nombre
+        };
+        return (nombre, direccion);
+    }
+    (texto.to_string(), texto.to_string())
+}
+
+/// La fecha en ISO 8601, o vacía si el almacén no la entendió (`0`).
+pub fn fecha_de(segundos: i64) -> String {
+    if segundos <= 0 {
+        return String::new();
+    }
+    chrono::DateTime::from_timestamp(segundos, 0)
+        .map(|f| f.to_rfc3339())
+        .unwrap_or_default()
+}
+
+/// Busca en lo guardado la casilla que la ventana pide por su ruta. La de
+/// entrada se compara sin mayúsculas: el estándar dice que `INBOX` se escribe
+/// como se quiera.
+fn casilla_guardada<'a>(
+    guardadas: &'a [CasillaGuardada],
+    ruta: &str,
+) -> Option<&'a CasillaGuardada> {
+    guardadas.iter().find(|c| {
+        c.name == ruta
+            || (ruta.eq_ignore_ascii_case("INBOX") && c.name.eq_ignore_ascii_case("INBOX"))
+    })
+}
+
+async fn casillas_guardadas(account_id: &str) -> Result<Vec<CasillaGuardada>, String> {
+    let json = llamar_almacen("ListMailboxes", &(account_id,)).await?;
+    serde_json::from_str(&json).map_err(|e| format!("no se pudieron leer las carpetas: {e}"))
+}
+
+/// Los mensajes de una casilla, **del almacén**. `None` si el almacén no los
+/// tiene —el área todavía no se encendió, la primera vuelta no terminó, el
+/// llavero está bloqueado—: quien llama va al servidor.
+async fn mensajes_guardados(account_id: &str, casilla: &str) -> Option<Vec<Resumen>> {
+    let guardadas = casillas_guardadas(account_id).await.ok()?;
+    let id = casilla_guardada(&guardadas, casilla)?.id;
+    let json = llamar_almacen("ListMessages", &(account_id, id, "", PAGINA))
+        .await
+        .ok()?;
+    let pagina: PaginaGuardada = serde_json::from_str(&json).ok()?;
+    if pagina.items.is_empty() {
+        return None;
+    }
+    Some(pagina.items.into_iter().filter_map(resumen_de).collect())
+}
+
+/// Un resumen de la lista a partir de uno del almacén.
+fn resumen_de(m: ResumenGuardado) -> Option<Resumen> {
+    let (de, direccion) = separar_remitente(&m.from_addr);
+    Some(Resumen {
+        uid: u32::try_from(m.uid).ok()?,
+        de,
+        direccion,
+        asunto: m.subject,
+        fecha: fecha_de(m.date_ts),
+        sin_leer: !m.flags_seen,
+        con_adjuntos: m.has_attachments,
+        id_almacen: Some(m.id),
+    })
+}
+
+/// Un mensaje abierto a partir de uno del almacén, si ya tiene su cuerpo.
+fn abierto_de(m: MensajeGuardado) -> Option<Abierto> {
+    let texto = m.text_body?;
+    let (nombre, direccion) = separar_remitente(&m.from_addr);
+    let responder_a = m
+        .reply_to
+        .filter(|r| !r.trim().is_empty())
+        .map(|r| separar_remitente(&r).1)
+        .unwrap_or(direccion);
+    Some(Abierto {
+        texto,
+        recortado: m.truncated,
+        adjuntos: m
+            .attachments
+            .into_iter()
+            .map(|a| Adjunto {
+                nombre: a
+                    .name
+                    .unwrap_or_else(|| format!("adjunto-{}", a.part_number)),
+                parte: a.part_number,
+                tipo: a.content_type,
+            })
+            .collect(),
+        con_formato: m.html_body.map(|html| Saneado {
+            html,
+            imagenes_bloqueadas: 0,
+            recortado: m.truncated,
+        }),
+        message_id: m.message_id.unwrap_or_default(),
+        // El almacén no guarda la cadena de `References`: la respuesta se
+        // engancha igual por `In-Reply-To`.
+        referencias: Vec::new(),
+        responder_a,
+        nombre,
+    })
+}
+
+/// Le pide al sincronizador que traiga ya lo nuevo de unas cuentas: es el
+/// botón «Actualizar». No espera a que termine; lo que llegue se avisa con la
+/// señal `Changed` del almacén, como cualquier otra novedad.
+///
+/// Un fallo de una cuenta no frena a las demás, y no es un error para la
+/// ventana: el almacén tiene un límite por llamante, y lo que ya está se
+/// sigue viendo.
+pub async fn pedir_sincronizacion(account_ids: &[String]) {
+    for id in account_ids {
+        if let Err(e) = llamar_almacen_sin_respuesta("RequestSync", &(id.as_str(),)).await {
+            eprintln!("[correo] no se pudo pedir una vuelta de «{id}»: {e}");
+        }
+    }
+}
+
+async fn llamar_almacen_sin_respuesta<A>(metodo: &str, argumentos: &A) -> Result<(), String>
+where
+    A: serde::ser::Serialize + zbus::zvariant::DynamicType,
+{
+    conectar()
+        .await?
+        .call_method(
+            Some(SERVICIO),
+            RUTA_ALMACEN,
+            Some(INTERFAZ_ALMACEN),
+            metodo,
+            argumentos,
+        )
+        .await
+        .map_err(|e| format!("{metodo}: {e}"))?;
+    Ok(())
+}
+
 /// Las cuentas que tienen correo, con su contador de sin leer.
 pub async fn cuentas() -> Result<Vec<Cuenta>, String> {
     let json = llamar("MailboxStatus", &()).await?;
@@ -152,7 +420,22 @@ pub async fn cuentas() -> Result<Vec<Cuenta>, String> {
 }
 
 /// Las casillas de una cuenta.
+///
+/// Del almacén si las tiene; si no, del servidor.
 pub async fn casillas(account_id: &str) -> Result<Vec<Casilla>, String> {
+    if let Ok(guardadas) = casillas_guardadas(account_id).await {
+        if !guardadas.is_empty() {
+            return Ok(guardadas
+                .into_iter()
+                .map(|c| Casilla {
+                    uso: uso_de_rol(&c.role).to_string(),
+                    ruta: c.name,
+                    nombre: c.display_name,
+                    seleccionable: true,
+                })
+                .collect());
+        }
+    }
     let json = llamar("ListMailboxes", &(account_id,)).await?;
     serde_json::from_str(&json).map_err(|e| format!("no se pudieron leer las carpetas: {e}"))
 }
@@ -161,7 +444,14 @@ pub async fn casillas(account_id: &str) -> Result<Vec<Casilla>, String> {
 ///
 /// La casilla va siempre, incluso para la de entrada: los **UID son por
 /// casilla**, así que pedir mensajes sin decir de dónde es pedir cualquiera.
+///
+/// **Primero del almacén del sistema**, que ya está en disco y no espera a la
+/// red; el sincronizador lo mantiene al día en segundo plano. Sólo si el
+/// almacén no tiene esa casilla se le pregunta al servidor.
 pub async fn mensajes(account_id: &str, casilla: &str) -> Result<Vec<Resumen>, String> {
+    if let Some(guardados) = mensajes_guardados(account_id, casilla).await {
+        return Ok(guardados);
+    }
     let json = llamar("ListMessages", &(account_id, casilla)).await?;
     serde_json::from_str(&json).map_err(|e| format!("no se pudo leer el correo: {e}"))
 }
@@ -198,8 +488,26 @@ pub async fn buscar(
     serde_json::from_str(&json).map_err(|e| format!("no se pudo leer la búsqueda: {e}"))
 }
 
-/// El texto de un mensaje. Se trae del servidor en el momento.
-pub async fn abrir(account_id: &str, casilla: &str, uid: u32) -> Result<Abierto, String> {
+/// El texto de un mensaje.
+///
+/// Del almacén si ya tiene el cuerpo —el sincronizador trae en segundo plano
+/// los de lo más nuevo de la bandeja de entrada—; si no, del servidor en el
+/// momento.
+pub async fn abrir(
+    account_id: &str,
+    casilla: &str,
+    uid: u32,
+    id_almacen: Option<i64>,
+) -> Result<Abierto, String> {
+    if let Some(id) = id_almacen {
+        if let Ok(json) = llamar_almacen("GetMessage", &(account_id, id)).await {
+            if let Ok(Some(guardado)) = serde_json::from_str::<Option<MensajeGuardado>>(&json) {
+                if let Some(abierto) = abierto_de(guardado) {
+                    return Ok(abierto);
+                }
+            }
+        }
+    }
     let json = llamar("GetMessage", &(account_id, casilla, uid)).await?;
     serde_json::from_str(&json).map_err(|e| format!("no se pudo leer el mensaje: {e}"))
 }
@@ -537,6 +845,22 @@ async fn seguir(app: &tauri::AppHandle) -> Result<(), String> {
     // Las dos a la vez: una `select` sobre los dos flujos deja que llegue la que
     // llegue primero. Encadenarlas escucharía sólo la primera hasta que se
     // cortara, que en la práctica es nunca.
+    // Y lo que cambió en el almacén, que es de donde sale la lista. Sólo el
+    // área del correo: el bus filtra por el primer argumento, así que un lote
+    // de contactos no despierta a esta ventana.
+    let regla = zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .interface(INTERFAZ_ALMACEN)
+        .and_then(|r| r.member("Changed"))
+        .and_then(|r| r.arg(0, "email"))
+        .map_err(|e| format!("no se pudo armar el filtro del almacén: {e}"))?
+        .build();
+    flujos.push(
+        zbus::MessageStream::for_match_rule(regla, &conexion, None)
+            .await
+            .map_err(|e| format!("no se pudo escuchar al almacén: {e}"))?,
+    );
+
     let mut avisos = futures_util::stream::select_all(flujos);
 
     while let Some(aviso) = avisos.next().await {

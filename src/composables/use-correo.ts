@@ -60,6 +60,11 @@ export interface Resumen {
 	fecha: string;
 	sin_leer: boolean;
 	con_adjuntos: boolean;
+	/**
+	 * El número del mensaje en el almacén del sistema, si la lista salió de
+	 * ahí. Con él, abrirlo no va al servidor. `null` si vino en vivo.
+	 */
+	id_almacen?: number | null;
 }
 
 /**
@@ -222,6 +227,28 @@ export function useCorreo() {
 		} catch (e) {
 			console.error('no se pudo leer la cola de salida', e);
 		}
+	}
+
+	/**
+	 * El botón «Actualizar».
+	 *
+	 * Lo que se ve sale del almacén del sistema, que el sincronizador mantiene
+	 * al día solo; esto le pide que traiga ya lo nuevo de las cuentas a la
+	 * vista, y relee lo que hay mientras tanto. Lo que llegue después se avisa
+	 * con `correo-cambio`, como cualquier novedad.
+	 */
+	async function actualizar() {
+		const ids = combinada.value
+			? cuentas.value.map((c) => c.account_id)
+			: elegida.value
+				? [elegida.value]
+				: [];
+		try {
+			await invoke('pedir_sincronizacion', { accountIds: ids });
+		} catch (e) {
+			console.error('no se pudo pedir una vuelta al sincronizador', e);
+		}
+		await cargarCuentas();
 	}
 
 	async function cargarCuentas() {
@@ -465,6 +492,7 @@ export function useCorreo() {
 				accountId: resumen.account_id,
 				casilla: resumen.casilla,
 				uid: resumen.uid,
+				idAlmacen: resumen.id_almacen ?? null,
 			});
 			if (mio !== mensajeVigente) {
 				return;
@@ -686,6 +714,7 @@ export function useCorreo() {
 		cargandoMensaje,
 		error,
 		cargarCuentas,
+		actualizar,
 		cargarMensajes,
 		elegir,
 		elegirCasilla,

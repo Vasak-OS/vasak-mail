@@ -56,8 +56,15 @@ pub async fn abrir_mensaje(
     account_id: String,
     casilla: String,
     uid: u32,
+    id_almacen: Option<i64>,
 ) -> Result<Abierto, String> {
-    correo::abrir(&account_id, &casilla, uid).await
+    correo::abrir(&account_id, &casilla, uid, id_almacen).await
+}
+
+/// El botón «Actualizar»: pide al sincronizador que traiga ya lo nuevo.
+#[tauri::command]
+pub async fn pedir_sincronizacion(account_ids: Vec<String>) {
+    correo::pedir_sincronizacion(&account_ids).await
 }
 
 /// Marca un mensaje como leído en el servidor.

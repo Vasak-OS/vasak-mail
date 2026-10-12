@@ -64,6 +64,7 @@ pub fn run() {
             comandos::traer_imagen,
             comandos::abrir_mensaje,
             comandos::marcar_leido,
+            comandos::pedir_sincronizacion,
             comandos::enviar_mensaje,
             comandos::leer_adjunto,
             comandos::guardar_adjunto,
