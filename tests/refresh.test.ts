@@ -9,21 +9,33 @@
  *   cuerpo ya esté en disco—;
  * - que «Actualizar» le pida la vuelta al sincronizador **por las cuentas que
  *   se están mirando** y después relea, aunque el pedido falle;
- * - y que el botón y el atajo de la ventana llamen a eso y no sólo a releer.
+ * - que el botón y el atajo de la ventana llamen a eso y no sólo a releer;
+ * - y que «Actualizar» y el aviso del almacén (`correo-cambio`) relean también
+ *   las carpetas de la cuenta elegida: una vuelta del sincronizador puede
+ *   sumar o sacar carpetas, y sin releerlas la lista de al costado se queda con
+ *   las de antes.
  */
 
 import { afterEach, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
-import { type Cuenta, type Resumen, useCorreo } from '@/composables/use-correo';
+import { type Casilla, type Cuenta, type Resumen, useCorreo } from '@/composables/use-correo';
 import { TODAS } from '@/tools/bandeja';
 import MailView from '@/views/MailView.vue';
-import { contestar, fallar, invocaciones, olvidarTodo } from './dobles';
+import { contestar, emit, fallar, invocaciones, olvidarTodo } from './dobles';
 
 // Montar la ventana entera la primera vez compila todo su árbol.
 setDefaultTimeout(60_000);
 
 const ANA: Cuenta = { account_id: 'ana', display_name: 'Ana', sin_leer: 0, error: '' };
 const LUIS: Cuenta = { account_id: 'luis', display_name: 'Luis', sin_leer: 0, error: '' };
+
+const ENTRADA: Casilla = { ruta: 'INBOX', nombre: 'INBOX', uso: 'entrada', seleccionable: true };
+const FACTURAS: Casilla = {
+	ruta: 'Facturas 2026',
+	nombre: 'Facturas 2026',
+	uso: 'ninguno',
+	seleccionable: true,
+};
 
 function resumen(cambios: Partial<Resumen> = {}): Resumen {
 	return {
@@ -61,6 +73,7 @@ afterEach(() => {
 	contestar('listar_cuentas', []);
 	contestar('listar_mensajes', []);
 	contestar('open_message', undefined);
+	contestar('listar_casillas', []);
 });
 
 describe('abrir un mensaje', () => {
@@ -159,6 +172,54 @@ describe('actualizar', () => {
 	});
 });
 
+describe('las carpetas al actualizar', () => {
+	test('actualizar relee las carpetas de la cuenta elegida', async () => {
+		contestar('listar_cuentas', [ANA]);
+		contestar('listar_casillas', [ENTRADA]);
+		const correo = useCorreo();
+		await correo.cargarCuentas();
+		expect(correo.casillas.value).toEqual([ENTRADA]);
+		// La vuelta del sincronizador trajo una carpeta nueva.
+		contestar('listar_casillas', [ENTRADA, FACTURAS]);
+		invocaciones.length = 0;
+
+		await correo.refresh();
+
+		expect(argumentosDe('listar_casillas')).toContainEqual({ accountId: 'ana' });
+		expect(correo.casillas.value).toEqual([ENTRADA, FACTURAS]);
+	});
+
+	test('releer sin pedir la vuelta también trae las carpetas nuevas', async () => {
+		contestar('listar_cuentas', [ANA]);
+		contestar('listar_casillas', [ENTRADA, FACTURAS]);
+		const correo = useCorreo();
+		await correo.cargarCuentas();
+		// Una carpeta que se borró en el servidor deja de verse.
+		contestar('listar_casillas', [ENTRADA]);
+		invocaciones.length = 0;
+
+		await correo.reload();
+
+		expect(argumentosDe('request_sync')).toEqual([]);
+		expect(correo.casillas.value).toEqual([ENTRADA]);
+	});
+
+	test('en la bandeja combinada no se listan carpetas al actualizar', async () => {
+		// Las carpetas son de cada cuenta: una lista mezclada no se podría abrir.
+		contestar('listar_cuentas', [ANA, LUIS]);
+		contestar('listar_casillas', [ENTRADA, FACTURAS]);
+		const correo = useCorreo();
+		await correo.cargarCuentas();
+		expect(correo.elegida.value).toBe(TODAS);
+		invocaciones.length = 0;
+
+		await correo.refresh();
+
+		expect(argumentosDe('listar_casillas')).toEqual([]);
+		expect(correo.casillas.value).toEqual([]);
+	});
+});
+
 describe('la ventana', () => {
 	let vista: VueWrapper | null = null;
 
@@ -203,5 +264,30 @@ describe('la ventana', () => {
 		await asentar();
 
 		expect(argumentosDe('request_sync')).toEqual([{ accountIds: ['ana'] }]);
+	});
+
+	test('un aviso del almacén muestra las carpetas nuevas', async () => {
+		contestar('listar_casillas', [ENTRADA]);
+		const ventana = await abrirLaVentana();
+		expect(ventana.text()).not.toContain('Facturas 2026');
+		contestar('listar_casillas', [ENTRADA, FACTURAS]);
+
+		await emit('correo-cambio');
+		await asentar();
+
+		expect(argumentosDe('request_sync')).toEqual([]);
+		expect(argumentosDe('listar_casillas')).toContainEqual({ accountId: 'ana' });
+		expect(ventana.text()).toContain('Facturas 2026');
+	});
+
+	test('el botón «Actualizar» muestra las carpetas nuevas', async () => {
+		contestar('listar_casillas', [ENTRADA]);
+		const ventana = await abrirLaVentana();
+		contestar('listar_casillas', [ENTRADA, FACTURAS]);
+
+		await ventana.find('button[title="lista.actualizar"]').trigger('click');
+		await asentar();
+
+		expect(ventana.text()).toContain('Facturas 2026');
 	});
 });
