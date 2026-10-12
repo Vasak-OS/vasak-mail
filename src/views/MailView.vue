@@ -46,6 +46,7 @@ const {
 	salientes,
 	enviando,
 	cargarCuentas,
+	refresh,
 	elegir,
 	elegirCasilla,
 	abrir,
@@ -393,7 +394,7 @@ function alApretar(evento: KeyboardEvent) {
 			escribir();
 			break;
 		case 'actualizar':
-			cargarCuentas();
+			refresh();
 			break;
 		case 'irALaEntrada':
 			elegirCasilla('INBOX');
@@ -534,7 +535,7 @@ onUnmounted(() => {
         :icon-alt="t('lista.actualizar')"
         :title="t('lista.actualizar')"
         :disabled="cargandoLista"
-        @click="cargarCuentas()" />
+        @click="refresh()" />
     </template>
 
     <!-- Dónde se está parado, centrado en la barra entera y no en lo que sobra

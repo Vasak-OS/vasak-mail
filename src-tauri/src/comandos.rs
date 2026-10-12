@@ -52,12 +52,19 @@ pub async fn buscar_mensajes(
 
 /// El texto de un mensaje.
 #[tauri::command]
-pub async fn abrir_mensaje(
+pub async fn open_message(
     account_id: String,
     casilla: String,
     uid: u32,
+    store_id: Option<i64>,
 ) -> Result<Abierto, String> {
-    correo::abrir(&account_id, &casilla, uid).await
+    correo::open_message(&account_id, &casilla, uid, store_id).await
+}
+
+/// El botón «Actualizar»: pide al sincronizador que traiga ya lo nuevo.
+#[tauri::command]
+pub async fn request_sync(account_ids: Vec<String>) {
+    correo::request_sync(&account_ids).await
 }
 
 /// Marca un mensaje como leído en el servidor.

@@ -148,7 +148,7 @@ afterEach(() => {
 	// estaban, o la próxima ventana que se monte arranca con estas cuentas.
 	contestar('listar_cuentas', []);
 	contestar('listar_mensajes', []);
-	contestar('abrir_mensaje', undefined);
+	contestar('open_message', undefined);
 });
 
 async function settle() {
@@ -158,7 +158,7 @@ async function settle() {
 async function openWindow() {
 	contestar('listar_cuentas', ACCOUNTS);
 	contestar('listar_mensajes', MESSAGES);
-	contestar('abrir_mensaje', OPENED);
+	contestar('open_message', OPENED);
 	view = mount(MailView, { attachTo: document.body });
 	await settle();
 	return view;

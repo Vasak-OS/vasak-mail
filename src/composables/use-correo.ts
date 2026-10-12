@@ -60,6 +60,11 @@ export interface Resumen {
 	fecha: string;
 	sin_leer: boolean;
 	con_adjuntos: boolean;
+	/**
+	 * El número del mensaje en el almacén del sistema, si la lista salió de
+	 * ahí. Con él, abrirlo no va al servidor. `null` si vino en vivo.
+	 */
+	store_id?: number | null;
 }
 
 /**
@@ -222,6 +227,28 @@ export function useCorreo() {
 		} catch (e) {
 			console.error('no se pudo leer la cola de salida', e);
 		}
+	}
+
+	/**
+	 * El botón «Actualizar».
+	 *
+	 * Lo que se ve sale del almacén del sistema, que el sincronizador mantiene
+	 * al día solo; esto le pide que traiga ya lo nuevo de las cuentas a la
+	 * vista, y relee lo que hay mientras tanto. Lo que llegue después se avisa
+	 * con `correo-cambio`, como cualquier novedad.
+	 */
+	async function refresh() {
+		const ids = combinada.value
+			? cuentas.value.map((c) => c.account_id)
+			: elegida.value
+				? [elegida.value]
+				: [];
+		try {
+			await invoke('request_sync', { accountIds: ids });
+		} catch (e) {
+			console.error('no se pudo pedir una vuelta al sincronizador', e);
+		}
+		await cargarCuentas();
 	}
 
 	async function cargarCuentas() {
@@ -461,10 +488,11 @@ export function useCorreo() {
 			// **De dónde salió el mensaje, no de lo que está elegido ahora.** En
 			// la combinada eso serían dos cosas distintas, y el panel mostraría el
 			// cuerpo de un mensaje con el encabezado de otro.
-			const traido = await invoke<Abierto>('abrir_mensaje', {
+			const traido = await invoke<Abierto>('open_message', {
 				accountId: resumen.account_id,
 				casilla: resumen.casilla,
 				uid: resumen.uid,
+				storeId: resumen.store_id ?? null,
 			});
 			if (mio !== mensajeVigente) {
 				return;
@@ -686,6 +714,7 @@ export function useCorreo() {
 		cargandoMensaje,
 		error,
 		cargarCuentas,
+		refresh,
 		cargarMensajes,
 		elegir,
 		elegirCasilla,
