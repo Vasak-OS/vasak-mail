@@ -66,7 +66,28 @@ export function contestar(comando: string, valor: unknown) {
 	respuestas.set(comando, valor);
 }
 
-export async function invoke(comando: string) {
+/**
+ * Cada `invoke` que se hizo, con sus argumentos, en orden.
+ *
+ * Lo que una prueba necesita para decir **qué** se le pidió al backend y no
+ * sólo lo que el backend contestó: un argumento que no viaja no se ve en la
+ * respuesta del doble, que contesta lo mismo con o sin él.
+ */
+export const invocaciones: { comando: string; args: unknown }[] = [];
+
+/** Los comandos que, en vez de contestar, fallan con este error. */
+const fallos = new Map<string, unknown>();
+
+/** Hace que un comando falle, para probar qué hace la ventana cuando pasa. */
+export function fallar(comando: string, error: unknown) {
+	fallos.set(comando, error);
+}
+
+export async function invoke(comando: string, args?: unknown) {
+	invocaciones.push({ comando, args });
+	if (fallos.has(comando)) {
+		throw fallos.get(comando);
+	}
 	return respuestas.get(comando);
 }
 
@@ -121,6 +142,8 @@ export async function getSymbolSource(nombre: string) {
 
 export function olvidarTodo() {
 	laVentanaRecibio.length = 0;
+	invocaciones.length = 0;
+	fallos.clear();
 	configuracion = {};
 	listeners.clear();
 	themeIcons.clear();

@@ -818,6 +818,18 @@ pub fn escuchar(app: tauri::AppHandle) {
 /// martillar un bus que no está.
 const ESPERA_ENTRE_INTENTOS: std::time::Duration = std::time::Duration::from_secs(15);
 
+/// La regla con que se escucha al almacén: su `Changed`, y sólo el del área
+/// del correo.
+fn regla_del_almacen() -> Result<zbus::MatchRule<'static>, String> {
+    Ok(zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .interface(INTERFAZ_ALMACEN)
+        .and_then(|r| r.member("Changed"))
+        .and_then(|r| r.arg(0, "email"))
+        .map_err(|e| format!("no se pudo armar el filtro del almacén: {e}"))?
+        .build())
+}
+
 async fn seguir(app: &tauri::AppHandle) -> Result<(), String> {
     use futures_util::StreamExt;
     use tauri::Emitter;
@@ -848,13 +860,7 @@ async fn seguir(app: &tauri::AppHandle) -> Result<(), String> {
     // Y lo que cambió en el almacén, que es de donde sale la lista. Sólo el
     // área del correo: el bus filtra por el primer argumento, así que un lote
     // de contactos no despierta a esta ventana.
-    let regla = zbus::MatchRule::builder()
-        .msg_type(zbus::message::Type::Signal)
-        .interface(INTERFAZ_ALMACEN)
-        .and_then(|r| r.member("Changed"))
-        .and_then(|r| r.arg(0, "email"))
-        .map_err(|e| format!("no se pudo armar el filtro del almacén: {e}"))?
-        .build();
+    let regla = regla_del_almacen()?;
     flujos.push(
         zbus::MessageStream::for_match_rule(regla, &conexion, None)
             .await
@@ -1014,5 +1020,431 @@ mod tests {
         let cuentas: Vec<Cuenta> = serde_json::from_str(json).unwrap();
         assert_eq!(cuentas[0].sin_leer, 0);
         assert_eq!(cuentas[0].error, "");
+    }
+
+    // ── Lo que manda el servicio en vivo ─────────────────────────────────────
+
+    /// **El arreglo de #66.** El servicio manda el HTML ya saneado en
+    /// `con_formato`; `Abierto` no tenía ese campo, y lo que no está en el tipo
+    /// se descarta al leer: la vista con formato no aparecía nunca. Se lee la
+    /// respuesta tal como la manda `vasak-accounts-sync` y se vuelve a escribir,
+    /// que es el viaje que hace hasta la ventana.
+    #[test]
+    fn el_html_saneado_del_servicio_llega_a_la_ventana() {
+        let respuesta = r#"{
+            "texto": "Hola", "recortado": false,
+            "adjuntos": [{"parte":"2","nombre":"x.pdf","tipo":"application/pdf"}],
+            "con_formato": {"html":"<p>Hola</p>","imagenes_bloqueadas":1,"recortado":false},
+            "message_id": "<a@b>", "referencias": ["<a@b>"],
+            "responder_a": "ana@x.com", "nombre": "Ana"
+        }"#;
+        let abierto: Abierto = serde_json::from_str(respuesta).unwrap();
+
+        let a_la_ventana = serde_json::to_value(&abierto).unwrap();
+        assert_eq!(
+            a_la_ventana["con_formato"],
+            serde_json::json!({"html":"<p>Hola</p>","imagenes_bloqueadas":1,"recortado":false}),
+            "{a_la_ventana}"
+        );
+    }
+
+    /// Sin HTML el servicio manda `con_formato: null`, y uno de una versión
+    /// anterior no lo manda: las dos cosas se leen como «sin formato».
+    #[test]
+    fn un_mensaje_sin_html_se_lee_sin_formato() {
+        let con_null = r#"{"texto":"Hola","recortado":false,"adjuntos":[],"con_formato":null}"#;
+        let sin_clave = r#"{"texto":"Hola","recortado":false,"adjuntos":[]}"#;
+
+        assert_eq!(
+            serde_json::from_str::<Abierto>(con_null)
+                .unwrap()
+                .con_formato,
+            None
+        );
+        assert_eq!(
+            serde_json::from_str::<Abierto>(sin_clave)
+                .unwrap()
+                .con_formato,
+            None
+        );
+    }
+
+    /// La lista en vivo no trae `id_almacen`: si el campo fuera obligatorio, la
+    /// lista del servicio dejaría de leerse entera y la ventana se quedaría sin
+    /// correo justo cuando el almacén no lo tiene.
+    #[test]
+    fn la_lista_en_vivo_se_lee_aunque_no_traiga_el_numero_del_almacen() {
+        let json = r#"[{
+            "uid": 42, "de": "Ana", "direccion": "ana@x.com", "asunto": "Hola",
+            "fecha": "", "sin_leer": true, "con_adjuntos": false
+        }]"#;
+        let lista: Vec<Resumen> = serde_json::from_str(json).unwrap();
+
+        assert_eq!(lista[0].uid, 42);
+        assert_eq!(lista[0].id_almacen, None);
+    }
+
+    // ── Lo que guarda el almacén del sistema ─────────────────────────────────
+
+    #[test]
+    fn el_rol_del_almacen_se_traduce_al_uso_de_la_ventana() {
+        assert_eq!(uso_de_rol("inbox"), "entrada");
+        assert_eq!(uso_de_rol("sent"), "enviados");
+        assert_eq!(uso_de_rol("drafts"), "borradores");
+        assert_eq!(uso_de_rol("trash"), "papelera");
+        assert_eq!(uso_de_rol("junk"), "spam");
+        assert_eq!(uso_de_rol("archive"), "archivo");
+        assert_eq!(uso_de_rol("other"), "ninguno");
+        assert_eq!(uso_de_rol(""), "ninguno");
+        // Los roles van en minúsculas: uno que no se conoce es «ninguno», no
+        // una carpeta especial adivinada.
+        assert_eq!(uso_de_rol("Inbox"), "ninguno");
+    }
+
+    #[test]
+    fn el_remitente_se_separa_en_nombre_y_direccion() {
+        assert_eq!(
+            separar_remitente("Ana Pérez <ana@ejemplo.com>"),
+            ("Ana Pérez".into(), "ana@ejemplo.com".into())
+        );
+        assert_eq!(
+            separar_remitente("\"Pérez, Ana\" <ana@ejemplo.com>"),
+            ("Pérez, Ana".into(), "ana@ejemplo.com".into())
+        );
+        assert_eq!(
+            separar_remitente("  Ana   <  ana@ejemplo.com >  "),
+            ("Ana".into(), "ana@ejemplo.com".into())
+        );
+    }
+
+    /// Sin nombre, la fila muestra la dirección en los dos lugares: un nombre
+    /// vacío dejaría la fila sin remitente.
+    #[test]
+    fn sin_nombre_el_remitente_es_su_direccion() {
+        assert_eq!(
+            separar_remitente("<ana@ejemplo.com>"),
+            ("ana@ejemplo.com".into(), "ana@ejemplo.com".into())
+        );
+        assert_eq!(
+            separar_remitente("\"\" <ana@ejemplo.com>"),
+            ("ana@ejemplo.com".into(), "ana@ejemplo.com".into())
+        );
+        assert_eq!(
+            separar_remitente("ana@ejemplo.com"),
+            ("ana@ejemplo.com".into(), "ana@ejemplo.com".into())
+        );
+    }
+
+    /// El fraude que la lista existe para mostrar: un nombre que parece una
+    /// dirección. La dirección de verdad es la de los ángulos, no la del
+    /// nombre.
+    #[test]
+    fn un_nombre_que_parece_direccion_no_tapa_la_direccion_de_verdad() {
+        let (nombre, direccion) = separar_remitente("soporte@banco.com <ladron@otro.net>");
+        assert_eq!(nombre, "soporte@banco.com");
+        assert_eq!(direccion, "ladron@otro.net");
+    }
+
+    #[test]
+    fn la_fecha_del_almacen_sale_en_iso_8601() {
+        assert_eq!(fecha_de(1_789_396_200), "2026-09-14T14:30:00+00:00");
+        assert_eq!(fecha_de(1), "1970-01-01T00:00:01+00:00");
+    }
+
+    /// `0` es lo que guarda el almacén cuando no entendió la fecha. Mostrar
+    /// «1 de enero de 1970» sería inventar una fecha.
+    #[test]
+    fn sin_fecha_en_el_almacen_la_fecha_queda_vacia() {
+        assert_eq!(fecha_de(0), "");
+        assert_eq!(fecha_de(-1), "");
+        // Y una fuera de rango tampoco revienta.
+        assert_eq!(fecha_de(i64::MAX), "");
+    }
+
+    fn guardada(id: i64, name: &str) -> CasillaGuardada {
+        CasillaGuardada {
+            id,
+            name: name.into(),
+            display_name: name.into(),
+            role: String::new(),
+        }
+    }
+
+    #[test]
+    fn la_casilla_se_busca_por_su_nombre_exacto() {
+        let guardadas = [
+            guardada(1, "INBOX"),
+            guardada(2, "Enviados"),
+            guardada(3, "enviados"),
+        ];
+
+        assert_eq!(
+            casilla_guardada(&guardadas, "Enviados").map(|c| c.id),
+            Some(2)
+        );
+        assert_eq!(
+            casilla_guardada(&guardadas, "enviados").map(|c| c.id),
+            Some(3)
+        );
+        assert!(casilla_guardada(&guardadas, "Papelera").is_none());
+    }
+
+    /// `INBOX` se escribe como se quiera (RFC 3501); las demás carpetas no: un
+    /// servidor puede tener «Enviados» y «enviados» y son dos.
+    #[test]
+    fn la_entrada_se_encuentra_sin_mirar_mayusculas_y_las_demas_no() {
+        let guardadas = [guardada(1, "Inbox"), guardada(2, "Enviados")];
+
+        assert_eq!(casilla_guardada(&guardadas, "INBOX").map(|c| c.id), Some(1));
+        assert_eq!(casilla_guardada(&guardadas, "inbox").map(|c| c.id), Some(1));
+        assert!(casilla_guardada(&guardadas, "ENVIADOS").is_none());
+    }
+
+    /// Una página de `ListMessages` como la escribe `vasak-accounts`
+    /// (`sync/src/store/email_read.rs`, `Page<MessageSummary>`), con todos sus
+    /// campos aunque se usen pocos: si alguno de los que se usan cambiara de
+    /// nombre de un lado, la lista caería al servidor sin decir nada.
+    const PAGINA_DEL_ALMACEN: &str = r#"{
+        "items": [{
+            "id": 41, "mailbox_id": 3, "mailbox_name": "INBOX", "uid": 7,
+            "message_id": "<m@x>", "from_addr": "Ana <ana@x.com>",
+            "to_addrs": "yo@x.com", "cc_addrs": "", "reply_to": null,
+            "subject": "Hola", "date_ts": 1789396200,
+            "flags_seen": false, "flags_answered": false, "flags_flagged": false,
+            "flags_draft": false, "flags_deleted": false,
+            "has_attachments": true, "size": 1234
+        }, {
+            "id": 42, "mailbox_id": 3, "mailbox_name": "INBOX", "uid": 4294967296,
+            "message_id": null, "from_addr": "x@x.com",
+            "to_addrs": "", "cc_addrs": "", "reply_to": null,
+            "subject": "", "date_ts": 0,
+            "flags_seen": true, "flags_answered": false, "flags_flagged": false,
+            "flags_draft": false, "flags_deleted": false,
+            "has_attachments": false, "size": 1
+        }],
+        "next_cursor": "MTc4OTM5NjIwMDo0MQ"
+    }"#;
+
+    #[test]
+    fn la_pagina_del_almacen_se_lee_con_la_forma_que_tiene() {
+        let pagina: PaginaGuardada = serde_json::from_str(PAGINA_DEL_ALMACEN).unwrap();
+        assert_eq!(pagina.items.len(), 2);
+
+        // La última página no trae `next_cursor` (se omite al serializar).
+        let ultima: PaginaGuardada = serde_json::from_str(r#"{"items":[]}"#).unwrap();
+        assert!(ultima.items.is_empty());
+    }
+
+    #[test]
+    fn un_mensaje_del_almacen_se_muestra_como_uno_en_vivo() {
+        let pagina: PaginaGuardada = serde_json::from_str(PAGINA_DEL_ALMACEN).unwrap();
+        let resumen = resumen_de(pagina.items[0].clone()).unwrap();
+
+        assert_eq!(
+            resumen,
+            Resumen {
+                uid: 7,
+                de: "Ana".into(),
+                direccion: "ana@x.com".into(),
+                asunto: "Hola".into(),
+                fecha: "2026-09-14T14:30:00+00:00".into(),
+                sin_leer: true,
+                con_adjuntos: true,
+                id_almacen: Some(41),
+            }
+        );
+        // Leído en el almacén es «no sin leer» en la ventana.
+        let leido = resumen_de(pagina.items[1].clone().tap_uid(9)).unwrap();
+        assert!(!leido.sin_leer);
+        assert_eq!(leido.fecha, "");
+    }
+
+    /// La ventana y el servidor hablan de `uid` de 32 bits (RFC 3501); uno que
+    /// no entra no se puede abrir ni marcar en vivo, así que no se lista en vez
+    /// de listarse con otro número.
+    #[test]
+    fn un_uid_que_no_entra_en_32_bits_no_se_lista() {
+        let pagina: PaginaGuardada = serde_json::from_str(PAGINA_DEL_ALMACEN).unwrap();
+        assert!(resumen_de(pagina.items[1].clone()).is_none());
+
+        let tope = resumen_de(pagina.items[0].clone().tap_uid(u64::from(u32::MAX)));
+        assert_eq!(tope.map(|r| r.uid), Some(u32::MAX));
+    }
+
+    impl ResumenGuardado {
+        fn tap_uid(mut self, uid: u64) -> Self {
+            self.uid = uid;
+            self
+        }
+    }
+
+    /// `ListMailboxes` del almacén (`Vec<MailboxSummary>`).
+    #[test]
+    fn las_casillas_del_almacen_se_leen_con_la_forma_que_tienen() {
+        let json = r#"[
+            {"id":1,"name":"INBOX","display_name":"Entrada","role":"inbox"},
+            {"id":2,"name":"[Gmail]/Enviados","display_name":"Enviados","role":"sent"}
+        ]"#;
+        let casillas: Vec<CasillaGuardada> = serde_json::from_str(json).unwrap();
+
+        assert_eq!(casillas[1].id, 2);
+        assert_eq!(casillas[1].name, "[Gmail]/Enviados");
+        assert_eq!(casillas[1].display_name, "Enviados");
+        assert_eq!(uso_de_rol(&casillas[1].role), "enviados");
+    }
+
+    /// `GetMessage` del almacén (`Option<MessageFull>`), entero.
+    fn mensaje_del_almacen(cambios: serde_json::Value) -> MensajeGuardado {
+        let mut json = serde_json::json!({
+            "id": 41, "mailbox_id": 3, "mailbox_name": "INBOX", "uid": 7,
+            "message_id": "<m@x>", "from_addr": "Ana Pérez <ana@x.com>",
+            "to_addrs": "yo@x.com", "cc_addrs": "", "bcc_addrs": "",
+            "reply_to": null, "subject": "Hola", "date_ts": 1789396200,
+            "flags_seen": true, "flags_answered": false, "flags_flagged": false,
+            "flags_draft": false, "flags_deleted": false,
+            "has_attachments": true, "size": 1234,
+            "text_body": "Hola, ¿cómo va?", "html_body": "<p>Hola</p>",
+            "truncated": false,
+            "attachments": [
+                {"part_number":"2","name":"x.pdf","content_type":"application/pdf",
+                 "size":10,"inline":false,"content_id":null},
+                {"part_number":"3","name":null,"content_type":"image/png",
+                 "size":10,"inline":true,"content_id":"<img@x>"}
+            ],
+            "flags": ["$Etiqueta"]
+        });
+        for (clave, valor) in cambios.as_object().unwrap() {
+            json[clave] = valor.clone();
+        }
+        serde_json::from_value(json).unwrap()
+    }
+
+    #[test]
+    fn el_mensaje_del_almacen_se_lee_con_la_forma_que_tiene() {
+        let json = serde_json::to_string(&serde_json::json!(null)).unwrap();
+        // Un id que no existe: el almacén contesta `null`.
+        assert!(serde_json::from_str::<Option<MensajeGuardado>>(&json)
+            .unwrap()
+            .is_none());
+
+        let m = mensaje_del_almacen(serde_json::json!({}));
+        assert_eq!(m.attachments.len(), 2);
+        assert_eq!(m.text_body.as_deref(), Some("Hola, ¿cómo va?"));
+    }
+
+    #[test]
+    fn un_mensaje_del_almacen_se_abre_como_uno_en_vivo() {
+        let abierto = abierto_de(mensaje_del_almacen(serde_json::json!({}))).unwrap();
+
+        assert_eq!(abierto.texto, "Hola, ¿cómo va?");
+        assert!(!abierto.recortado);
+        assert_eq!(abierto.nombre, "Ana Pérez");
+        assert_eq!(abierto.message_id, "<m@x>");
+        assert_eq!(
+            abierto.con_formato,
+            Some(Saneado {
+                html: "<p>Hola</p>".into(),
+                imagenes_bloqueadas: 0,
+                recortado: false,
+            })
+        );
+    }
+
+    /// Sin `Reply-To` la respuesta va al remitente, **a su dirección** y no al
+    /// texto con el nombre: lo que se escribe en el «Para».
+    #[test]
+    fn sin_reply_to_se_responde_a_la_direccion_del_remitente() {
+        let nulo = abierto_de(mensaje_del_almacen(serde_json::json!({"reply_to": null}))).unwrap();
+        assert_eq!(nulo.responder_a, "ana@x.com");
+
+        let vacio = abierto_de(mensaje_del_almacen(serde_json::json!({"reply_to": "  "}))).unwrap();
+        assert_eq!(vacio.responder_a, "ana@x.com");
+
+        let con = abierto_de(mensaje_del_almacen(
+            serde_json::json!({"reply_to": "Lista <lista@x.org>"}),
+        ))
+        .unwrap();
+        assert_eq!(con.responder_a, "lista@x.org");
+    }
+
+    /// El almacén guarda la lista del mensaje antes de tener su cuerpo. Sin
+    /// texto no hay qué mostrar: `None` hace que se vaya a buscar al servidor,
+    /// en vez de abrir un mensaje en blanco.
+    #[test]
+    fn sin_cuerpo_guardado_el_mensaje_se_pide_al_servidor() {
+        let sin_cuerpo =
+            mensaje_del_almacen(serde_json::json!({"text_body": null, "html_body": null}));
+        assert!(abierto_de(sin_cuerpo).is_none());
+
+        // Aunque tenga HTML: la vista de texto es la que siempre tiene que
+        // poder mostrarse.
+        let solo_html = mensaje_del_almacen(serde_json::json!({"text_body": null}));
+        assert!(abierto_de(solo_html).is_none());
+    }
+
+    #[test]
+    fn sin_html_guardado_el_mensaje_se_abre_sin_formato() {
+        let abierto =
+            abierto_de(mensaje_del_almacen(serde_json::json!({"html_body": null}))).unwrap();
+        assert_eq!(abierto.con_formato, None);
+        assert_eq!(abierto.texto, "Hola, ¿cómo va?");
+    }
+
+    /// El recorte se dice en el texto y en el formato: los dos vienen del mismo
+    /// cuerpo cortado.
+    #[test]
+    fn un_mensaje_recortado_en_el_almacen_se_dice_recortado() {
+        let abierto =
+            abierto_de(mensaje_del_almacen(serde_json::json!({"truncated": true}))).unwrap();
+        assert!(abierto.recortado);
+        assert!(abierto.con_formato.unwrap().recortado);
+    }
+
+    /// Un adjunto sin nombre se nombra igual: sin nombre no se puede mostrar en
+    /// la lista ni guardar, y quien lee no se entera de que estaba.
+    #[test]
+    fn los_adjuntos_del_almacen_llegan_con_parte_tipo_y_nombre() {
+        let abierto = abierto_de(mensaje_del_almacen(serde_json::json!({}))).unwrap();
+
+        assert_eq!(
+            abierto.adjuntos,
+            vec![
+                Adjunto {
+                    parte: "2".into(),
+                    nombre: "x.pdf".into(),
+                    tipo: "application/pdf".into(),
+                },
+                Adjunto {
+                    parte: "3".into(),
+                    nombre: "adjunto-3".into(),
+                    tipo: "image/png".into(),
+                },
+            ]
+        );
+    }
+
+    /// `Changed` del almacén sale por cada área. La ventana tiene que despertar
+    /// con el del correo y con ningún otro: un lote de contactos no cambia la
+    /// lista, y recargarla por él es gastar batería.
+    #[test]
+    fn se_escucha_el_changed_del_correo_y_no_el_de_otras_areas() {
+        let regla = regla_del_almacen().unwrap();
+        let senal = |area: &str| {
+            zbus::message::Message::signal(RUTA_ALMACEN, INTERFAZ_ALMACEN, "Changed")
+                .unwrap()
+                .build(&(area, "cuenta", 3u64))
+                .unwrap()
+        };
+
+        assert!(regla.matches(&senal("email")).unwrap());
+        assert!(!regla.matches(&senal("contacts")).unwrap());
+        assert!(!regla.matches(&senal("calendar")).unwrap());
+
+        // Ni otra señal del almacén con el mismo primer argumento.
+        let otra = zbus::message::Message::signal(RUTA_ALMACEN, INTERFAZ_ALMACEN, "StatusChanged")
+            .unwrap()
+            .build(&("email",))
+            .unwrap();
+        assert!(!regla.matches(&otra).unwrap());
     }
 }
