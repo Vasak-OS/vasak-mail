@@ -390,7 +390,7 @@ fn abierto_de(m: MensajeGuardado) -> Option<Abierto> {
 pub async fn pedir_sincronizacion(account_ids: &[String]) {
     for id in account_ids {
         if let Err(e) = llamar_almacen_sin_respuesta("RequestSync", &(id.as_str(),)).await {
-            eprintln!("[correo] no se pudo pedir una vuelta de «{id}»: {e}");
+            eprintln!("[correo] no se pudo pedir una vuelta de una cuenta: {e}");
         }
     }
 }
