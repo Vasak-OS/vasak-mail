@@ -248,7 +248,18 @@ export function useCorreo() {
 		} catch (e) {
 			console.error('no se pudo pedir una vuelta al sincronizador', e);
 		}
+		await reload();
+	}
+
+	/**
+	 * Relee lo que hay —cuentas, mensajes y carpetas— sin pedirle nada al
+	 * sincronizador. Es lo que se hace cuando avisa que cambió algo: una
+	 * vuelta puede sumar o sacar carpetas, y sin releerlas la lista de al
+	 * costado se queda con las de antes.
+	 */
+	async function reload() {
 		await cargarCuentas();
+		await cargarCasillas();
 	}
 
 	async function cargarCuentas() {
@@ -715,6 +726,7 @@ export function useCorreo() {
 		error,
 		cargarCuentas,
 		refresh,
+		reload,
 		cargarMensajes,
 		elegir,
 		elegirCasilla,

@@ -47,6 +47,7 @@ const {
 	enviando,
 	cargarCuentas,
 	refresh,
+	reload,
 	elegir,
 	elegirCasilla,
 	abrir,
@@ -443,7 +444,7 @@ onMounted(async () => {
 	// llega correo; enganchándose después, un aviso que llegue durante esos dos
 	// segundos se pierde y la lista queda vieja hasta el siguiente.
 	try {
-		const cancelar = await listen('correo-cambio', () => cargarCuentas());
+		const cancelar = await listen('correo-cambio', () => reload());
 		if (desmontada) {
 			cancelar();
 		} else {
