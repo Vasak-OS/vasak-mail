@@ -343,10 +343,15 @@ async fn stored_messages(account_id: &str, casilla: &str) -> Option<Vec<Resumen>
     let json = call_store("ListMessages", &(account_id, id, "", STORE_PAGE))
         .await
         .ok()?;
-    // Vacía también vale: la casilla está en el almacén y no tiene nada. Ir
-    // al servidor cada vez que se abre una carpeta vacía sería justo lo que el
-    // almacén viene a evitar.
-    let pagina: StoredPage = serde_json::from_str(&json).ok()?;
+    summaries_from_page(&json)
+}
+
+/// La lista de una página de `ListMessages`. Vacía también vale: la casilla
+/// está en el almacén y no tiene nada, e ir al servidor cada vez que se abre
+/// una carpeta vacía sería justo lo que el almacén viene a evitar. `None`
+/// sólo si la respuesta no se entiende.
+fn summaries_from_page(json: &str) -> Option<Vec<Resumen>> {
+    let pagina: StoredPage = serde_json::from_str(json).ok()?;
     Some(
         pagina
             .items
@@ -1562,5 +1567,24 @@ mod tests {
                 .imagenes_bloqueadas,
             2
         );
+    }
+
+    /// Una casilla vacía en el almacén es una lista vacía, no «no está»: si
+    /// no, cada vez que se abre una carpeta vacía se iría al servidor.
+    #[test]
+    fn una_casilla_vacia_en_el_almacen_es_una_lista_vacia() {
+        assert_eq!(
+            summaries_from_page(r#"{"items": [], "next_cursor": null}"#),
+            Some(Vec::new())
+        );
+        assert_eq!(summaries_from_page("no es json"), None);
+        let page = serde_json::json!({"items": [{
+            "id": 9, "uid": 7, "from_addr": "Ana <ana@x.com>", "subject": "Hola",
+            "date_ts": 0, "flags_seen": false, "has_attachments": false
+        }]});
+        let list = summaries_from_page(&page.to_string()).unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].store_id, Some(9));
+        assert!(list[0].sin_leer);
     }
 }
