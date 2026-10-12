@@ -238,6 +238,13 @@ struct StoredAttachment {
 /// Un mensaje entero del almacén.
 #[derive(Debug, Clone, Deserialize)]
 struct StoredMessage {
+    /// De qué casilla y con qué UID: el número del almacén se reusa cuando la
+    /// ventana de sincronización corre, así que hay que comprobar que es el
+    /// mensaje que se pidió.
+    #[serde(default)]
+    uid: u64,
+    #[serde(default)]
+    mailbox_name: String,
     #[serde(default)]
     message_id: Option<String>,
     from_addr: String,
@@ -251,6 +258,21 @@ struct StoredMessage {
     truncated: bool,
     #[serde(default)]
     attachments: Vec<StoredAttachment>,
+}
+
+/// Si lo que contestó el almacén es el mensaje que se pidió: misma casilla y
+/// mismo UID. La de entrada se compara sin mayúsculas, como la pide IMAP.
+fn is_requested(m: &StoredMessage, casilla: &str, uid: u32) -> bool {
+    m.uid == u64::from(uid)
+        && (m.mailbox_name == casilla
+            || (casilla.eq_ignore_ascii_case("INBOX")
+                && m.mailbox_name.eq_ignore_ascii_case("INBOX")))
+}
+
+/// Cuántas imágenes remotas bloqueó el saneador del servicio: cada una dejó su
+/// dirección en `data-vsk-src` (`REMOTE_SRC_ATTRIBUTE` de `html.rs`).
+fn blocked_images(html: &str) -> u32 {
+    u32::try_from(html.matches("data-vsk-src=").count()).unwrap_or(u32::MAX)
 }
 
 /// El uso de una casilla, en las palabras de la ventana, a partir del rol que
@@ -321,10 +343,10 @@ async fn stored_messages(account_id: &str, casilla: &str) -> Option<Vec<Resumen>
     let json = call_store("ListMessages", &(account_id, id, "", STORE_PAGE))
         .await
         .ok()?;
+    // Vacía también vale: la casilla está en el almacén y no tiene nada. Ir
+    // al servidor cada vez que se abre una carpeta vacía sería justo lo que el
+    // almacén viene a evitar.
     let pagina: StoredPage = serde_json::from_str(&json).ok()?;
-    if pagina.items.is_empty() {
-        return None;
-    }
     Some(
         pagina
             .items
@@ -373,8 +395,10 @@ fn opened_from_store(m: StoredMessage) -> Option<Abierto> {
             })
             .collect(),
         con_formato: m.html_body.map(|html| Sanitized {
+            // Las imágenes que el saneador bloqueó quedan marcadas en el HTML
+            // guardado: contarlas es lo que hace aparecer el botón de traerlas.
+            imagenes_bloqueadas: blocked_images(&html),
             html,
-            imagenes_bloqueadas: 0,
             recortado: m.truncated,
         }),
         message_id: m.message_id.unwrap_or_default(),
@@ -508,7 +532,10 @@ pub async fn open_message(
     if let Some(id) = store_id {
         if let Ok(json) = call_store("GetMessage", &(account_id, id)).await {
             if let Ok(Some(guardado)) = serde_json::from_str::<Option<StoredMessage>>(&json) {
-                if let Some(abierto) = opened_from_store(guardado) {
+                if !is_requested(&guardado, casilla, uid) {
+                    // Otro mensaje con el mismo número: se va al servidor por
+                    // el que se pidió.
+                } else if let Some(abierto) = opened_from_store(guardado) {
                     return Ok(abierto);
                 }
             }
@@ -1488,5 +1515,52 @@ mod tests {
             .build(&("email", "cuenta", 3u64))
             .unwrap();
         assert!(!regla.matches(&de_otro_objeto).unwrap());
+    }
+
+    fn stored(uid: u64, mailbox: &str) -> StoredMessage {
+        serde_json::from_value(serde_json::json!({
+            "uid": uid, "mailbox_name": mailbox, "from_addr": "ana@x.com",
+            "text_body": "Hola"
+        }))
+        .unwrap()
+    }
+
+    /// El número del almacén se reusa cuando corre la ventana de
+    /// sincronización: un mensaje con otro UID o de otra casilla no se muestra
+    /// bajo el encabezado del que se pidió.
+    #[test]
+    fn el_mensaje_guardado_tiene_que_ser_el_que_se_pidio() {
+        assert!(is_requested(&stored(7, "INBOX"), "INBOX", 7));
+        assert!(is_requested(&stored(7, "Inbox"), "INBOX", 7));
+        assert!(is_requested(&stored(7, "Enviados"), "Enviados", 7));
+        assert!(!is_requested(&stored(8, "INBOX"), "INBOX", 7));
+        assert!(!is_requested(&stored(7, "Enviados"), "INBOX", 7));
+        assert!(!is_requested(&stored(7, "enviados"), "Enviados", 7));
+        // Una respuesta sin UID ni casilla —un almacén viejo— no es el pedido.
+        let without: StoredMessage =
+            serde_json::from_value(serde_json::json!({"from_addr": "a@x"})).unwrap();
+        assert!(!is_requested(&without, "INBOX", 7));
+    }
+
+    /// Las imágenes que bloqueó el saneador se cuentan desde el HTML guardado:
+    /// sin la cuenta, la ventana no ofrece traerlas.
+    #[test]
+    fn las_imagenes_bloqueadas_se_cuentan_del_html_guardado() {
+        let html = r#"<p>Hola</p><img data-vsk-src="https://x/a.png"><img data-vsk-src="https://x/b.png">"#;
+        assert_eq!(blocked_images(html), 2);
+        assert_eq!(blocked_images("<p>sin imágenes</p>"), 0);
+        let m: StoredMessage = serde_json::from_value(serde_json::json!({
+            "uid": 1, "mailbox_name": "INBOX", "from_addr": "a@x",
+            "text_body": "Hola", "html_body": html
+        }))
+        .unwrap();
+        assert_eq!(
+            opened_from_store(m)
+                .unwrap()
+                .con_formato
+                .unwrap()
+                .imagenes_bloqueadas,
+            2
+        );
     }
 }
