@@ -60,18 +60,18 @@ afterEach(() => {
 	// estaban.
 	contestar('listar_cuentas', []);
 	contestar('listar_mensajes', []);
-	contestar('abrir_mensaje', undefined);
+	contestar('open_message', undefined);
 });
 
 describe('abrir un mensaje', () => {
 	test('el que salió del almacén se abre con su número del almacén', async () => {
 		const correo = useCorreo();
-		contestar('abrir_mensaje', { texto: 'Hola', recortado: false, adjuntos: [] });
+		contestar('open_message', { texto: 'Hola', recortado: false, adjuntos: [] });
 
-		await correo.abrir(resumen({ id_almacen: 41 }));
+		await correo.abrir(resumen({ store_id: 41 }));
 
-		expect(argumentosDe('abrir_mensaje')).toEqual([
-			{ accountId: 'ana', casilla: 'INBOX', uid: 7, idAlmacen: 41 },
+		expect(argumentosDe('open_message')).toEqual([
+			{ accountId: 'ana', casilla: 'INBOX', uid: 7, storeId: 41 },
 		]);
 	});
 
@@ -81,11 +81,11 @@ describe('abrir un mensaje', () => {
 		const correo = useCorreo();
 
 		await correo.abrir(resumen());
-		await correo.abrir(resumen({ uid: 8, id_almacen: null }));
+		await correo.abrir(resumen({ uid: 8, store_id: null }));
 
-		expect(argumentosDe('abrir_mensaje')).toEqual([
-			{ accountId: 'ana', casilla: 'INBOX', uid: 7, idAlmacen: null },
-			{ accountId: 'ana', casilla: 'INBOX', uid: 8, idAlmacen: null },
+		expect(argumentosDe('open_message')).toEqual([
+			{ accountId: 'ana', casilla: 'INBOX', uid: 7, storeId: null },
+			{ accountId: 'ana', casilla: 'INBOX', uid: 8, storeId: null },
 		]);
 	});
 });
@@ -98,9 +98,9 @@ describe('actualizar', () => {
 		expect(correo.elegida.value).toBe(TODAS);
 		invocaciones.length = 0;
 
-		await correo.actualizar();
+		await correo.refresh();
 
-		expect(argumentosDe('pedir_sincronizacion')).toEqual([{ accountIds: ['ana', 'luis'] }]);
+		expect(argumentosDe('request_sync')).toEqual([{ accountIds: ['ana', 'luis'] }]);
 	});
 
 	test('con una cuenta elegida pide sólo la de esa cuenta', async () => {
@@ -110,30 +110,30 @@ describe('actualizar', () => {
 		await correo.elegir('luis');
 		invocaciones.length = 0;
 
-		await correo.actualizar();
+		await correo.refresh();
 
-		expect(argumentosDe('pedir_sincronizacion')).toEqual([{ accountIds: ['luis'] }]);
+		expect(argumentosDe('request_sync')).toEqual([{ accountIds: ['luis'] }]);
 	});
 
 	test('sin nada elegido no pide la vuelta de ninguna cuenta', async () => {
 		const correo = useCorreo();
 		expect(correo.elegida.value).toBe('');
 
-		await correo.actualizar();
+		await correo.refresh();
 
-		expect(argumentosDe('pedir_sincronizacion')).toEqual([{ accountIds: [] }]);
+		expect(argumentosDe('request_sync')).toEqual([{ accountIds: [] }]);
 	});
 
 	test('pide la vuelta y después relee lo que hay', async () => {
 		contestar('listar_cuentas', [ANA]);
 		const correo = useCorreo();
 
-		await correo.actualizar();
+		await correo.refresh();
 
 		const orden = comandos();
-		expect(orden).toContain('pedir_sincronizacion');
+		expect(orden).toContain('request_sync');
 		expect(orden).toContain('listar_cuentas');
-		expect(orden.indexOf('pedir_sincronizacion')).toBeLessThan(orden.indexOf('listar_cuentas'));
+		expect(orden.indexOf('request_sync')).toBeLessThan(orden.indexOf('listar_cuentas'));
 		// Y la relectura llegó a la lista: no basta con preguntar las cuentas.
 		expect(argumentosDe('listar_mensajes')).toEqual([{ accountId: 'ana', casilla: 'INBOX' }]);
 		expect(correo.elegida.value).toBe('ana');
@@ -143,12 +143,12 @@ describe('actualizar', () => {
 		// El almacén tiene un límite por llamante: que diga que no es lo
 		// esperable, y lo que ya está se tiene que seguir viendo al día.
 		contestar('listar_cuentas', [ANA]);
-		fallar('pedir_sincronizacion', 'límite por llamante');
+		fallar('request_sync', 'límite por llamante');
 		const correo = useCorreo();
 		const errorDeConsola = console.error;
 		console.error = () => {};
 		try {
-			await correo.actualizar();
+			await correo.refresh();
 		} finally {
 			console.error = errorDeConsola;
 		}
@@ -192,7 +192,7 @@ describe('la ventana', () => {
 		await boton.trigger('click');
 		await asentar();
 
-		expect(argumentosDe('pedir_sincronizacion')).toEqual([{ accountIds: ['ana'] }]);
+		expect(argumentosDe('request_sync')).toEqual([{ accountIds: ['ana'] }]);
 		expect(comandos()).toContain('listar_cuentas');
 	});
 
@@ -202,6 +202,6 @@ describe('la ventana', () => {
 		window.dispatchEvent(new KeyboardEvent('keydown', { key: '.' }));
 		await asentar();
 
-		expect(argumentosDe('pedir_sincronizacion')).toEqual([{ accountIds: ['ana'] }]);
+		expect(argumentosDe('request_sync')).toEqual([{ accountIds: ['ana'] }]);
 	});
 });

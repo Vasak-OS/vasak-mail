@@ -88,12 +88,12 @@ pub struct Resumen {
     /// El número del mensaje en el almacén del sistema, si salió de ahí. Es lo
     /// que permite abrirlo sin ir al servidor; `None` si la lista vino en vivo.
     #[serde(default)]
-    pub id_almacen: Option<i64>,
+    pub store_id: Option<i64>,
 }
 
 /// El HTML de un mensaje, **ya saneado** por el sincronizador.
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
-pub struct Saneado {
+pub struct Sanitized {
     pub html: String,
     #[serde(default)]
     pub imagenes_bloqueadas: u32,
@@ -126,7 +126,7 @@ pub struct Abierto {
     /// leer la respuesta, el HTML que mandaba el servicio nunca llegaba a la
     /// ventana: la vista con formato no aparecía nunca.
     #[serde(default)]
-    pub con_formato: Option<Saneado>,
+    pub con_formato: Option<Sanitized>,
     /// El identificador del mensaje, para enganchar la respuesta a la
     /// conversación. Vacío si el mensaje no traía uno, que pasa.
     #[serde(default)]
@@ -142,12 +142,12 @@ pub struct Abierto {
 
 /// El almacén del sistema: lo que el sincronizador ya trajo y guardó cifrado.
 /// Mismo nombre de bus, otro objeto. Ver `store_api.rs` de `vasak-accounts`.
-const RUTA_ALMACEN: &str = "/ar/net/vasak/os/AccountsStore";
-const INTERFAZ_ALMACEN: &str = "ar.net.vasak.os.AccountsStore";
+const STORE_PATH: &str = "/ar/net/vasak/os/AccountsStore";
+const STORE_INTERFACE: &str = "ar.net.vasak.os.AccountsStore";
 
 /// Cuántos mensajes se piden del almacén por casilla: los mismos que mostraba
 /// la lista en vivo.
-const PAGINA: u32 = 200;
+const STORE_PAGE: u32 = 200;
 
 async fn conectar() -> Result<zbus::Connection, String> {
     // El bus de sesión y no el del sistema: el sincronizador es un servicio del
@@ -180,7 +180,7 @@ where
 /// **Sin tope de tiempo** —zbus no pone uno—, a propósito: la primera lectura
 /// puede abrir el diálogo de permiso de `vasak-permissions`, y la respuesta
 /// llega cuando la persona lo cierra.
-async fn llamar_almacen<A>(metodo: &str, argumentos: &A) -> Result<String, String>
+async fn call_store<A>(metodo: &str, argumentos: &A) -> Result<String, String>
 where
     A: serde::ser::Serialize + zbus::zvariant::DynamicType,
 {
@@ -188,8 +188,8 @@ where
         .await?
         .call_method(
             Some(SERVICIO),
-            RUTA_ALMACEN,
-            Some(INTERFAZ_ALMACEN),
+            STORE_PATH,
+            Some(STORE_INTERFACE),
             metodo,
             argumentos,
         )
@@ -202,7 +202,7 @@ where
 
 /// Una casilla tal como la guarda el almacén.
 #[derive(Debug, Clone, Deserialize)]
-struct CasillaGuardada {
+struct StoredMailbox {
     id: i64,
     name: String,
     display_name: String,
@@ -211,7 +211,7 @@ struct CasillaGuardada {
 
 /// Un mensaje de la lista del almacén.
 #[derive(Debug, Clone, Deserialize)]
-struct ResumenGuardado {
+struct StoredSummary {
     id: i64,
     uid: u64,
     from_addr: String,
@@ -222,13 +222,13 @@ struct ResumenGuardado {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-struct PaginaGuardada {
-    items: Vec<ResumenGuardado>,
+struct StoredPage {
+    items: Vec<StoredSummary>,
 }
 
 /// Un adjunto como lo guarda el almacén.
 #[derive(Debug, Clone, Deserialize)]
-struct AdjuntoGuardado {
+struct StoredAttachment {
     part_number: String,
     #[serde(default)]
     name: Option<String>,
@@ -237,7 +237,7 @@ struct AdjuntoGuardado {
 
 /// Un mensaje entero del almacén.
 #[derive(Debug, Clone, Deserialize)]
-struct MensajeGuardado {
+struct StoredMessage {
     #[serde(default)]
     message_id: Option<String>,
     from_addr: String,
@@ -250,12 +250,12 @@ struct MensajeGuardado {
     #[serde(default)]
     truncated: bool,
     #[serde(default)]
-    attachments: Vec<AdjuntoGuardado>,
+    attachments: Vec<StoredAttachment>,
 }
 
 /// El uso de una casilla, en las palabras de la ventana, a partir del rol que
 /// guarda el almacén.
-pub fn uso_de_rol(rol: &str) -> &'static str {
+pub fn usage_for_role(rol: &str) -> &'static str {
     match rol {
         "inbox" => "entrada",
         "sent" => "enviados",
@@ -269,7 +269,7 @@ pub fn uso_de_rol(rol: &str) -> &'static str {
 
 /// Separa `Nombre <dirección>` en sus dos partes, como las muestra la lista:
 /// el nombre **y** la dirección, nunca sólo el nombre.
-pub fn separar_remitente(texto: &str) -> (String, String) {
+pub fn split_sender(texto: &str) -> (String, String) {
     let texto = texto.trim();
     if let (Some(abre), true) = (texto.rfind('<'), texto.ends_with('>')) {
         let nombre = texto[..abre].trim().trim_matches('"').trim().to_string();
@@ -285,7 +285,7 @@ pub fn separar_remitente(texto: &str) -> (String, String) {
 }
 
 /// La fecha en ISO 8601, o vacía si el almacén no la entendió (`0`).
-pub fn fecha_de(segundos: i64) -> String {
+pub fn iso_date(segundos: i64) -> String {
     if segundos <= 0 {
         return String::new();
     }
@@ -297,60 +297,66 @@ pub fn fecha_de(segundos: i64) -> String {
 /// Busca en lo guardado la casilla que la ventana pide por su ruta. La de
 /// entrada se compara sin mayúsculas: el estándar dice que `INBOX` se escribe
 /// como se quiera.
-fn casilla_guardada<'a>(
-    guardadas: &'a [CasillaGuardada],
+fn find_stored_mailbox<'a>(
+    guardadas: &'a [StoredMailbox],
     ruta: &str,
-) -> Option<&'a CasillaGuardada> {
+) -> Option<&'a StoredMailbox> {
     guardadas.iter().find(|c| {
         c.name == ruta
             || (ruta.eq_ignore_ascii_case("INBOX") && c.name.eq_ignore_ascii_case("INBOX"))
     })
 }
 
-async fn casillas_guardadas(account_id: &str) -> Result<Vec<CasillaGuardada>, String> {
-    let json = llamar_almacen("ListMailboxes", &(account_id,)).await?;
+async fn stored_mailboxes(account_id: &str) -> Result<Vec<StoredMailbox>, String> {
+    let json = call_store("ListMailboxes", &(account_id,)).await?;
     serde_json::from_str(&json).map_err(|e| format!("no se pudieron leer las carpetas: {e}"))
 }
 
 /// Los mensajes de una casilla, **del almacén**. `None` si el almacén no los
 /// tiene —el área todavía no se encendió, la primera vuelta no terminó, el
 /// llavero está bloqueado—: quien llama va al servidor.
-async fn mensajes_guardados(account_id: &str, casilla: &str) -> Option<Vec<Resumen>> {
-    let guardadas = casillas_guardadas(account_id).await.ok()?;
-    let id = casilla_guardada(&guardadas, casilla)?.id;
-    let json = llamar_almacen("ListMessages", &(account_id, id, "", PAGINA))
+async fn stored_messages(account_id: &str, casilla: &str) -> Option<Vec<Resumen>> {
+    let guardadas = stored_mailboxes(account_id).await.ok()?;
+    let id = find_stored_mailbox(&guardadas, casilla)?.id;
+    let json = call_store("ListMessages", &(account_id, id, "", STORE_PAGE))
         .await
         .ok()?;
-    let pagina: PaginaGuardada = serde_json::from_str(&json).ok()?;
+    let pagina: StoredPage = serde_json::from_str(&json).ok()?;
     if pagina.items.is_empty() {
         return None;
     }
-    Some(pagina.items.into_iter().filter_map(resumen_de).collect())
+    Some(
+        pagina
+            .items
+            .into_iter()
+            .filter_map(summary_from_store)
+            .collect(),
+    )
 }
 
 /// Un resumen de la lista a partir de uno del almacén.
-fn resumen_de(m: ResumenGuardado) -> Option<Resumen> {
-    let (de, direccion) = separar_remitente(&m.from_addr);
+fn summary_from_store(m: StoredSummary) -> Option<Resumen> {
+    let (de, direccion) = split_sender(&m.from_addr);
     Some(Resumen {
         uid: u32::try_from(m.uid).ok()?,
         de,
         direccion,
         asunto: m.subject,
-        fecha: fecha_de(m.date_ts),
+        fecha: iso_date(m.date_ts),
         sin_leer: !m.flags_seen,
         con_adjuntos: m.has_attachments,
-        id_almacen: Some(m.id),
+        store_id: Some(m.id),
     })
 }
 
 /// Un mensaje abierto a partir de uno del almacén, si ya tiene su cuerpo.
-fn abierto_de(m: MensajeGuardado) -> Option<Abierto> {
+fn opened_from_store(m: StoredMessage) -> Option<Abierto> {
     let texto = m.text_body?;
-    let (nombre, direccion) = separar_remitente(&m.from_addr);
+    let (nombre, direccion) = split_sender(&m.from_addr);
     let responder_a = m
         .reply_to
         .filter(|r| !r.trim().is_empty())
-        .map(|r| separar_remitente(&r).1)
+        .map(|r| split_sender(&r).1)
         .unwrap_or(direccion);
     Some(Abierto {
         texto,
@@ -366,7 +372,7 @@ fn abierto_de(m: MensajeGuardado) -> Option<Abierto> {
                 tipo: a.content_type,
             })
             .collect(),
-        con_formato: m.html_body.map(|html| Saneado {
+        con_formato: m.html_body.map(|html| Sanitized {
             html,
             imagenes_bloqueadas: 0,
             recortado: m.truncated,
@@ -387,15 +393,15 @@ fn abierto_de(m: MensajeGuardado) -> Option<Abierto> {
 /// Un fallo de una cuenta no frena a las demás, y no es un error para la
 /// ventana: el almacén tiene un límite por llamante, y lo que ya está se
 /// sigue viendo.
-pub async fn pedir_sincronizacion(account_ids: &[String]) {
+pub async fn request_sync(account_ids: &[String]) {
     for id in account_ids {
-        if let Err(e) = llamar_almacen_sin_respuesta("RequestSync", &(id.as_str(),)).await {
+        if let Err(e) = call_store_unit("RequestSync", &(id.as_str(),)).await {
             eprintln!("[correo] no se pudo pedir una vuelta de una cuenta: {e}");
         }
     }
 }
 
-async fn llamar_almacen_sin_respuesta<A>(metodo: &str, argumentos: &A) -> Result<(), String>
+async fn call_store_unit<A>(metodo: &str, argumentos: &A) -> Result<(), String>
 where
     A: serde::ser::Serialize + zbus::zvariant::DynamicType,
 {
@@ -403,8 +409,8 @@ where
         .await?
         .call_method(
             Some(SERVICIO),
-            RUTA_ALMACEN,
-            Some(INTERFAZ_ALMACEN),
+            STORE_PATH,
+            Some(STORE_INTERFACE),
             metodo,
             argumentos,
         )
@@ -423,12 +429,12 @@ pub async fn cuentas() -> Result<Vec<Cuenta>, String> {
 ///
 /// Del almacén si las tiene; si no, del servidor.
 pub async fn casillas(account_id: &str) -> Result<Vec<Casilla>, String> {
-    if let Ok(guardadas) = casillas_guardadas(account_id).await {
+    if let Ok(guardadas) = stored_mailboxes(account_id).await {
         if !guardadas.is_empty() {
             return Ok(guardadas
                 .into_iter()
                 .map(|c| Casilla {
-                    uso: uso_de_rol(&c.role).to_string(),
+                    uso: usage_for_role(&c.role).to_string(),
                     ruta: c.name,
                     nombre: c.display_name,
                     seleccionable: true,
@@ -449,7 +455,7 @@ pub async fn casillas(account_id: &str) -> Result<Vec<Casilla>, String> {
 /// red; el sincronizador lo mantiene al día en segundo plano. Sólo si el
 /// almacén no tiene esa casilla se le pregunta al servidor.
 pub async fn mensajes(account_id: &str, casilla: &str) -> Result<Vec<Resumen>, String> {
-    if let Some(guardados) = mensajes_guardados(account_id, casilla).await {
+    if let Some(guardados) = stored_messages(account_id, casilla).await {
         return Ok(guardados);
     }
     let json = llamar("ListMessages", &(account_id, casilla)).await?;
@@ -493,16 +499,16 @@ pub async fn buscar(
 /// Del almacén si ya tiene el cuerpo —el sincronizador trae en segundo plano
 /// los de lo más nuevo de la bandeja de entrada—; si no, del servidor en el
 /// momento.
-pub async fn abrir(
+pub async fn open_message(
     account_id: &str,
     casilla: &str,
     uid: u32,
-    id_almacen: Option<i64>,
+    store_id: Option<i64>,
 ) -> Result<Abierto, String> {
-    if let Some(id) = id_almacen {
-        if let Ok(json) = llamar_almacen("GetMessage", &(account_id, id)).await {
-            if let Ok(Some(guardado)) = serde_json::from_str::<Option<MensajeGuardado>>(&json) {
-                if let Some(abierto) = abierto_de(guardado) {
+    if let Some(id) = store_id {
+        if let Ok(json) = call_store("GetMessage", &(account_id, id)).await {
+            if let Ok(Some(guardado)) = serde_json::from_str::<Option<StoredMessage>>(&json) {
+                if let Some(abierto) = opened_from_store(guardado) {
                     return Ok(abierto);
                 }
             }
@@ -816,14 +822,22 @@ pub fn escuchar(app: tauri::AppHandle) {
 ///
 /// Quince segundos: corto para que reconectar no se note, y largo para no
 /// martillar un bus que no está.
+/// Cuánto se juntan los avisos seguidos antes de pasarlos a la ventana.
+const SETTLE: std::time::Duration = std::time::Duration::from_millis(500);
+
 const ESPERA_ENTRE_INTENTOS: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// La regla con que se escucha al almacén: su `Changed`, y sólo el del área
 /// del correo.
-fn regla_del_almacen() -> Result<zbus::MatchRule<'static>, String> {
+fn store_change_rule() -> Result<zbus::MatchRule<'static>, String> {
     Ok(zbus::MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
-        .interface(INTERFAZ_ALMACEN)
+        // Sólo del dueño del nombre del sincronizador y de su objeto: cualquier
+        // proceso de la sesión puede emitir una señal con esta interfaz, y cada
+        // una hace releer la lista.
+        .sender(SERVICIO)
+        .and_then(|r| r.path(STORE_PATH))
+        .and_then(|r| r.interface(STORE_INTERFACE))
         .and_then(|r| r.member("Changed"))
         .and_then(|r| r.arg(0, "email"))
         .map_err(|e| format!("no se pudo armar el filtro del almacén: {e}"))?
@@ -860,7 +874,7 @@ async fn seguir(app: &tauri::AppHandle) -> Result<(), String> {
     // Y lo que cambió en el almacén, que es de donde sale la lista. Sólo el
     // área del correo: el bus filtra por el primer argumento, así que un lote
     // de contactos no despierta a esta ventana.
-    let regla = regla_del_almacen()?;
+    let regla = store_change_rule()?;
     flujos.push(
         zbus::MessageStream::for_match_rule(regla, &conexion, None)
             .await
@@ -871,6 +885,11 @@ async fn seguir(app: &tauri::AppHandle) -> Result<(), String> {
 
     while let Some(aviso) = avisos.next().await {
         if aviso.is_ok() {
+            // Una vuelta del almacén escribe de a lotes y avisa por cada uno: se
+            // juntan los que llegan seguidos en un solo aviso, para que la
+            // ventana relea una vez y no una por lote.
+            tokio::time::sleep(SETTLE).await;
+            while let Some(Some(_)) = futures_util::FutureExt::now_or_never(avisos.next()) {}
             // Sin detalle: el evento dice «volvé a leer», y la ventana relee y ve
             // el estado completo. Mandar el contenido acá sería reconstruir del
             // lado de la ventana un estado que el servicio ya tiene entero.
@@ -1069,7 +1088,7 @@ mod tests {
         );
     }
 
-    /// La lista en vivo no trae `id_almacen`: si el campo fuera obligatorio, la
+    /// La lista en vivo no trae `store_id`: si el campo fuera obligatorio, la
     /// lista del servicio dejaría de leerse entera y la ventana se quedaría sin
     /// correo justo cuando el almacén no lo tiene.
     #[test]
@@ -1081,38 +1100,38 @@ mod tests {
         let lista: Vec<Resumen> = serde_json::from_str(json).unwrap();
 
         assert_eq!(lista[0].uid, 42);
-        assert_eq!(lista[0].id_almacen, None);
+        assert_eq!(lista[0].store_id, None);
     }
 
     // ── Lo que guarda el almacén del sistema ─────────────────────────────────
 
     #[test]
     fn el_rol_del_almacen_se_traduce_al_uso_de_la_ventana() {
-        assert_eq!(uso_de_rol("inbox"), "entrada");
-        assert_eq!(uso_de_rol("sent"), "enviados");
-        assert_eq!(uso_de_rol("drafts"), "borradores");
-        assert_eq!(uso_de_rol("trash"), "papelera");
-        assert_eq!(uso_de_rol("junk"), "spam");
-        assert_eq!(uso_de_rol("archive"), "archivo");
-        assert_eq!(uso_de_rol("other"), "ninguno");
-        assert_eq!(uso_de_rol(""), "ninguno");
+        assert_eq!(usage_for_role("inbox"), "entrada");
+        assert_eq!(usage_for_role("sent"), "enviados");
+        assert_eq!(usage_for_role("drafts"), "borradores");
+        assert_eq!(usage_for_role("trash"), "papelera");
+        assert_eq!(usage_for_role("junk"), "spam");
+        assert_eq!(usage_for_role("archive"), "archivo");
+        assert_eq!(usage_for_role("other"), "ninguno");
+        assert_eq!(usage_for_role(""), "ninguno");
         // Los roles van en minúsculas: uno que no se conoce es «ninguno», no
         // una carpeta especial adivinada.
-        assert_eq!(uso_de_rol("Inbox"), "ninguno");
+        assert_eq!(usage_for_role("Inbox"), "ninguno");
     }
 
     #[test]
     fn el_remitente_se_separa_en_nombre_y_direccion() {
         assert_eq!(
-            separar_remitente("Ana Pérez <ana@ejemplo.com>"),
+            split_sender("Ana Pérez <ana@ejemplo.com>"),
             ("Ana Pérez".into(), "ana@ejemplo.com".into())
         );
         assert_eq!(
-            separar_remitente("\"Pérez, Ana\" <ana@ejemplo.com>"),
+            split_sender("\"Pérez, Ana\" <ana@ejemplo.com>"),
             ("Pérez, Ana".into(), "ana@ejemplo.com".into())
         );
         assert_eq!(
-            separar_remitente("  Ana   <  ana@ejemplo.com >  "),
+            split_sender("  Ana   <  ana@ejemplo.com >  "),
             ("Ana".into(), "ana@ejemplo.com".into())
         );
     }
@@ -1122,15 +1141,15 @@ mod tests {
     #[test]
     fn sin_nombre_el_remitente_es_su_direccion() {
         assert_eq!(
-            separar_remitente("<ana@ejemplo.com>"),
+            split_sender("<ana@ejemplo.com>"),
             ("ana@ejemplo.com".into(), "ana@ejemplo.com".into())
         );
         assert_eq!(
-            separar_remitente("\"\" <ana@ejemplo.com>"),
+            split_sender("\"\" <ana@ejemplo.com>"),
             ("ana@ejemplo.com".into(), "ana@ejemplo.com".into())
         );
         assert_eq!(
-            separar_remitente("ana@ejemplo.com"),
+            split_sender("ana@ejemplo.com"),
             ("ana@ejemplo.com".into(), "ana@ejemplo.com".into())
         );
     }
@@ -1140,29 +1159,29 @@ mod tests {
     /// nombre.
     #[test]
     fn un_nombre_que_parece_direccion_no_tapa_la_direccion_de_verdad() {
-        let (nombre, direccion) = separar_remitente("soporte@banco.com <ladron@otro.net>");
+        let (nombre, direccion) = split_sender("soporte@banco.com <ladron@otro.net>");
         assert_eq!(nombre, "soporte@banco.com");
         assert_eq!(direccion, "ladron@otro.net");
     }
 
     #[test]
     fn la_fecha_del_almacen_sale_en_iso_8601() {
-        assert_eq!(fecha_de(1_789_396_200), "2026-09-14T14:30:00+00:00");
-        assert_eq!(fecha_de(1), "1970-01-01T00:00:01+00:00");
+        assert_eq!(iso_date(1_789_396_200), "2026-09-14T14:30:00+00:00");
+        assert_eq!(iso_date(1), "1970-01-01T00:00:01+00:00");
     }
 
     /// `0` es lo que guarda el almacén cuando no entendió la fecha. Mostrar
     /// «1 de enero de 1970» sería inventar una fecha.
     #[test]
     fn sin_fecha_en_el_almacen_la_fecha_queda_vacia() {
-        assert_eq!(fecha_de(0), "");
-        assert_eq!(fecha_de(-1), "");
+        assert_eq!(iso_date(0), "");
+        assert_eq!(iso_date(-1), "");
         // Y una fuera de rango tampoco revienta.
-        assert_eq!(fecha_de(i64::MAX), "");
+        assert_eq!(iso_date(i64::MAX), "");
     }
 
-    fn guardada(id: i64, name: &str) -> CasillaGuardada {
-        CasillaGuardada {
+    fn guardada(id: i64, name: &str) -> StoredMailbox {
+        StoredMailbox {
             id,
             name: name.into(),
             display_name: name.into(),
@@ -1179,14 +1198,14 @@ mod tests {
         ];
 
         assert_eq!(
-            casilla_guardada(&guardadas, "Enviados").map(|c| c.id),
+            find_stored_mailbox(&guardadas, "Enviados").map(|c| c.id),
             Some(2)
         );
         assert_eq!(
-            casilla_guardada(&guardadas, "enviados").map(|c| c.id),
+            find_stored_mailbox(&guardadas, "enviados").map(|c| c.id),
             Some(3)
         );
-        assert!(casilla_guardada(&guardadas, "Papelera").is_none());
+        assert!(find_stored_mailbox(&guardadas, "Papelera").is_none());
     }
 
     /// `INBOX` se escribe como se quiera (RFC 3501); las demás carpetas no: un
@@ -1195,9 +1214,15 @@ mod tests {
     fn la_entrada_se_encuentra_sin_mirar_mayusculas_y_las_demas_no() {
         let guardadas = [guardada(1, "Inbox"), guardada(2, "Enviados")];
 
-        assert_eq!(casilla_guardada(&guardadas, "INBOX").map(|c| c.id), Some(1));
-        assert_eq!(casilla_guardada(&guardadas, "inbox").map(|c| c.id), Some(1));
-        assert!(casilla_guardada(&guardadas, "ENVIADOS").is_none());
+        assert_eq!(
+            find_stored_mailbox(&guardadas, "INBOX").map(|c| c.id),
+            Some(1)
+        );
+        assert_eq!(
+            find_stored_mailbox(&guardadas, "inbox").map(|c| c.id),
+            Some(1)
+        );
+        assert!(find_stored_mailbox(&guardadas, "ENVIADOS").is_none());
     }
 
     /// Una página de `ListMessages` como la escribe `vasak-accounts`
@@ -1227,18 +1252,18 @@ mod tests {
 
     #[test]
     fn la_pagina_del_almacen_se_lee_con_la_forma_que_tiene() {
-        let pagina: PaginaGuardada = serde_json::from_str(PAGINA_DEL_ALMACEN).unwrap();
+        let pagina: StoredPage = serde_json::from_str(PAGINA_DEL_ALMACEN).unwrap();
         assert_eq!(pagina.items.len(), 2);
 
         // La última página no trae `next_cursor` (se omite al serializar).
-        let ultima: PaginaGuardada = serde_json::from_str(r#"{"items":[]}"#).unwrap();
+        let ultima: StoredPage = serde_json::from_str(r#"{"items":[]}"#).unwrap();
         assert!(ultima.items.is_empty());
     }
 
     #[test]
     fn un_mensaje_del_almacen_se_muestra_como_uno_en_vivo() {
-        let pagina: PaginaGuardada = serde_json::from_str(PAGINA_DEL_ALMACEN).unwrap();
-        let resumen = resumen_de(pagina.items[0].clone()).unwrap();
+        let pagina: StoredPage = serde_json::from_str(PAGINA_DEL_ALMACEN).unwrap();
+        let resumen = summary_from_store(pagina.items[0].clone()).unwrap();
 
         assert_eq!(
             resumen,
@@ -1250,11 +1275,11 @@ mod tests {
                 fecha: "2026-09-14T14:30:00+00:00".into(),
                 sin_leer: true,
                 con_adjuntos: true,
-                id_almacen: Some(41),
+                store_id: Some(41),
             }
         );
         // Leído en el almacén es «no sin leer» en la ventana.
-        let leido = resumen_de(pagina.items[1].clone().tap_uid(9)).unwrap();
+        let leido = summary_from_store(pagina.items[1].clone().tap_uid(9)).unwrap();
         assert!(!leido.sin_leer);
         assert_eq!(leido.fecha, "");
     }
@@ -1264,14 +1289,14 @@ mod tests {
     /// de listarse con otro número.
     #[test]
     fn un_uid_que_no_entra_en_32_bits_no_se_lista() {
-        let pagina: PaginaGuardada = serde_json::from_str(PAGINA_DEL_ALMACEN).unwrap();
-        assert!(resumen_de(pagina.items[1].clone()).is_none());
+        let pagina: StoredPage = serde_json::from_str(PAGINA_DEL_ALMACEN).unwrap();
+        assert!(summary_from_store(pagina.items[1].clone()).is_none());
 
-        let tope = resumen_de(pagina.items[0].clone().tap_uid(u64::from(u32::MAX)));
+        let tope = summary_from_store(pagina.items[0].clone().tap_uid(u64::from(u32::MAX)));
         assert_eq!(tope.map(|r| r.uid), Some(u32::MAX));
     }
 
-    impl ResumenGuardado {
+    impl StoredSummary {
         fn tap_uid(mut self, uid: u64) -> Self {
             self.uid = uid;
             self
@@ -1285,16 +1310,16 @@ mod tests {
             {"id":1,"name":"INBOX","display_name":"Entrada","role":"inbox"},
             {"id":2,"name":"[Gmail]/Enviados","display_name":"Enviados","role":"sent"}
         ]"#;
-        let casillas: Vec<CasillaGuardada> = serde_json::from_str(json).unwrap();
+        let casillas: Vec<StoredMailbox> = serde_json::from_str(json).unwrap();
 
         assert_eq!(casillas[1].id, 2);
         assert_eq!(casillas[1].name, "[Gmail]/Enviados");
         assert_eq!(casillas[1].display_name, "Enviados");
-        assert_eq!(uso_de_rol(&casillas[1].role), "enviados");
+        assert_eq!(usage_for_role(&casillas[1].role), "enviados");
     }
 
     /// `GetMessage` del almacén (`Option<MessageFull>`), entero.
-    fn mensaje_del_almacen(cambios: serde_json::Value) -> MensajeGuardado {
+    fn mensaje_del_almacen(cambios: serde_json::Value) -> StoredMessage {
         let mut json = serde_json::json!({
             "id": 41, "mailbox_id": 3, "mailbox_name": "INBOX", "uid": 7,
             "message_id": "<m@x>", "from_addr": "Ana Pérez <ana@x.com>",
@@ -1323,7 +1348,7 @@ mod tests {
     fn el_mensaje_del_almacen_se_lee_con_la_forma_que_tiene() {
         let json = serde_json::to_string(&serde_json::json!(null)).unwrap();
         // Un id que no existe: el almacén contesta `null`.
-        assert!(serde_json::from_str::<Option<MensajeGuardado>>(&json)
+        assert!(serde_json::from_str::<Option<StoredMessage>>(&json)
             .unwrap()
             .is_none());
 
@@ -1334,7 +1359,7 @@ mod tests {
 
     #[test]
     fn un_mensaje_del_almacen_se_abre_como_uno_en_vivo() {
-        let abierto = abierto_de(mensaje_del_almacen(serde_json::json!({}))).unwrap();
+        let abierto = opened_from_store(mensaje_del_almacen(serde_json::json!({}))).unwrap();
 
         assert_eq!(abierto.texto, "Hola, ¿cómo va?");
         assert!(!abierto.recortado);
@@ -1342,7 +1367,7 @@ mod tests {
         assert_eq!(abierto.message_id, "<m@x>");
         assert_eq!(
             abierto.con_formato,
-            Some(Saneado {
+            Some(Sanitized {
                 html: "<p>Hola</p>".into(),
                 imagenes_bloqueadas: 0,
                 recortado: false,
@@ -1354,13 +1379,15 @@ mod tests {
     /// texto con el nombre: lo que se escribe en el «Para».
     #[test]
     fn sin_reply_to_se_responde_a_la_direccion_del_remitente() {
-        let nulo = abierto_de(mensaje_del_almacen(serde_json::json!({"reply_to": null}))).unwrap();
+        let nulo =
+            opened_from_store(mensaje_del_almacen(serde_json::json!({"reply_to": null}))).unwrap();
         assert_eq!(nulo.responder_a, "ana@x.com");
 
-        let vacio = abierto_de(mensaje_del_almacen(serde_json::json!({"reply_to": "  "}))).unwrap();
+        let vacio =
+            opened_from_store(mensaje_del_almacen(serde_json::json!({"reply_to": "  "}))).unwrap();
         assert_eq!(vacio.responder_a, "ana@x.com");
 
-        let con = abierto_de(mensaje_del_almacen(
+        let con = opened_from_store(mensaje_del_almacen(
             serde_json::json!({"reply_to": "Lista <lista@x.org>"}),
         ))
         .unwrap();
@@ -1374,18 +1401,18 @@ mod tests {
     fn sin_cuerpo_guardado_el_mensaje_se_pide_al_servidor() {
         let sin_cuerpo =
             mensaje_del_almacen(serde_json::json!({"text_body": null, "html_body": null}));
-        assert!(abierto_de(sin_cuerpo).is_none());
+        assert!(opened_from_store(sin_cuerpo).is_none());
 
         // Aunque tenga HTML: la vista de texto es la que siempre tiene que
         // poder mostrarse.
         let solo_html = mensaje_del_almacen(serde_json::json!({"text_body": null}));
-        assert!(abierto_de(solo_html).is_none());
+        assert!(opened_from_store(solo_html).is_none());
     }
 
     #[test]
     fn sin_html_guardado_el_mensaje_se_abre_sin_formato() {
         let abierto =
-            abierto_de(mensaje_del_almacen(serde_json::json!({"html_body": null}))).unwrap();
+            opened_from_store(mensaje_del_almacen(serde_json::json!({"html_body": null}))).unwrap();
         assert_eq!(abierto.con_formato, None);
         assert_eq!(abierto.texto, "Hola, ¿cómo va?");
     }
@@ -1395,7 +1422,7 @@ mod tests {
     #[test]
     fn un_mensaje_recortado_en_el_almacen_se_dice_recortado() {
         let abierto =
-            abierto_de(mensaje_del_almacen(serde_json::json!({"truncated": true}))).unwrap();
+            opened_from_store(mensaje_del_almacen(serde_json::json!({"truncated": true}))).unwrap();
         assert!(abierto.recortado);
         assert!(abierto.con_formato.unwrap().recortado);
     }
@@ -1404,7 +1431,7 @@ mod tests {
     /// la lista ni guardar, y quien lee no se entera de que estaba.
     #[test]
     fn los_adjuntos_del_almacen_llegan_con_parte_tipo_y_nombre() {
-        let abierto = abierto_de(mensaje_del_almacen(serde_json::json!({}))).unwrap();
+        let abierto = opened_from_store(mensaje_del_almacen(serde_json::json!({}))).unwrap();
 
         assert_eq!(
             abierto.adjuntos,
@@ -1428,9 +1455,9 @@ mod tests {
     /// lista, y recargarla por él es gastar batería.
     #[test]
     fn se_escucha_el_changed_del_correo_y_no_el_de_otras_areas() {
-        let regla = regla_del_almacen().unwrap();
+        let regla = store_change_rule().unwrap();
         let senal = |area: &str| {
-            zbus::message::Message::signal(RUTA_ALMACEN, INTERFAZ_ALMACEN, "Changed")
+            zbus::message::Message::signal(STORE_PATH, STORE_INTERFACE, "Changed")
                 .unwrap()
                 .build(&(area, "cuenta", 3u64))
                 .unwrap()
@@ -1441,10 +1468,25 @@ mod tests {
         assert!(!regla.matches(&senal("calendar")).unwrap());
 
         // Ni otra señal del almacén con el mismo primer argumento.
-        let otra = zbus::message::Message::signal(RUTA_ALMACEN, INTERFAZ_ALMACEN, "StatusChanged")
+        let otra = zbus::message::Message::signal(STORE_PATH, STORE_INTERFACE, "StatusChanged")
             .unwrap()
             .build(&("email",))
             .unwrap();
         assert!(!regla.matches(&otra).unwrap());
+    }
+
+    /// Cualquier proceso de la sesión puede emitir una señal con la interfaz
+    /// del almacén: la regla sólo acepta la del dueño del nombre del
+    /// sincronizador, y desde su objeto.
+    #[test]
+    fn solo_cuenta_el_changed_del_sincronizador_y_de_su_objeto() {
+        let regla = store_change_rule().unwrap();
+        assert_eq!(regla.sender().map(|s| s.as_str()), Some(SERVICIO));
+
+        let de_otro_objeto = zbus::message::Message::signal("/otro", STORE_INTERFACE, "Changed")
+            .unwrap()
+            .build(&("email", "cuenta", 3u64))
+            .unwrap();
+        assert!(!regla.matches(&de_otro_objeto).unwrap());
     }
 }
