@@ -5,6 +5,7 @@ import { claveDe, combinados, esElMismo, TODAS } from '@/tools/bandeja';
 import { alcance, filtrados } from '@/tools/busqueda';
 import { noAntesDe, quedan } from '@/tools/deshacer';
 import type { Saneado } from '@/tools/formato';
+import type { AccountSyncStatus, SyncRequestFailure } from '@/tools/sync-status';
 
 /**
  * La carpeta de entrada, que es la única que tienen todas las cuentas con el
@@ -229,6 +230,33 @@ export function useCorreo() {
 		}
 	}
 
+	/** El estado de la sincronización de cada cuenta, del almacén. */
+	const syncStatuses = ref<AccountSyncStatus[]>([]);
+	/** Las cuentas a las que el último «Actualizar» no les pudo pedir una vuelta. */
+	const refreshFailures = ref<SyncRequestFailure[]>([]);
+
+	/**
+	 * Lee el estado de la sincronización. Si no se puede, se deja el que había:
+	 * no saber el estado no es un error que haya que mostrar encima del correo.
+	 */
+	async function loadSyncStatus() {
+		try {
+			const statuses = await invoke<AccountSyncStatus[]>('sync_status');
+			syncStatuses.value = Array.isArray(statuses) ? statuses : [];
+		} catch (e) {
+			console.error('no se pudo leer el estado de la sincronización', e);
+		}
+	}
+
+	/**
+	 * Cuando cambia el estado: se relee, y un «se pidió hace un momento» deja de
+	 * valer en cuanto hay una vuelta en marcha.
+	 */
+	async function onSyncStatusChanged() {
+		refreshFailures.value = refreshFailures.value.filter((f) => f.reason !== 'too_soon');
+		await loadSyncStatus();
+	}
+
 	/**
 	 * El botón «Actualizar».
 	 *
@@ -244,11 +272,16 @@ export function useCorreo() {
 				? [elegida.value]
 				: [];
 		try {
-			await invoke('request_sync', { accountIds: ids });
+			const failures = await invoke<SyncRequestFailure[]>('request_sync', { accountIds: ids });
+			refreshFailures.value = Array.isArray(failures) ? failures : [];
 		} catch (e) {
 			console.error('no se pudo pedir una vuelta al sincronizador', e);
+			refreshFailures.value = ids.map((account_id) => ({
+				account_id,
+				reason: 'unavailable' as const,
+			}));
 		}
-		await reload();
+		await Promise.all([loadSyncStatus(), reload()]);
 	}
 
 	/**
@@ -726,6 +759,10 @@ export function useCorreo() {
 		error,
 		cargarCuentas,
 		refresh,
+		syncStatuses,
+		refreshFailures,
+		loadSyncStatus,
+		onSyncStatusChanged,
 		reload,
 		cargarMensajes,
 		elegir,

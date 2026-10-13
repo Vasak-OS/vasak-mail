@@ -63,8 +63,14 @@ pub async fn open_message(
 
 /// El botón «Actualizar»: pide al sincronizador que traiga ya lo nuevo.
 #[tauri::command]
-pub async fn request_sync(account_ids: Vec<String>) {
+pub async fn request_sync(account_ids: Vec<String>) -> Vec<correo::SyncRequestFailure> {
     correo::request_sync(&account_ids).await
+}
+
+/// El estado de la sincronización del correo de cada cuenta.
+#[tauri::command]
+pub async fn sync_status() -> Result<Vec<correo::AccountSyncStatus>, String> {
+    correo::sync_status().await
 }
 
 /// Marca un mensaje como leído en el servidor.
