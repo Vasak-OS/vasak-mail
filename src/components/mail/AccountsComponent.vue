@@ -7,6 +7,7 @@ import {
 	ListRow,
 	Panel,
 	SectionHeading,
+	StatusDot,
 } from '@vasakgroup/vue-libvasak';
 import { computed } from 'vue';
 import OutboxComponent from '@/components/mail/OutboxComponent.vue';
@@ -15,6 +16,12 @@ import { TODAS } from '@/tools/bandeja';
 import { nombreDeCasilla } from '@/tools/casillas';
 import { claveSegunCantidad, interpolar } from '@/tools/interpolar';
 import { type Pane, paneVisibility } from '@/tools/panes';
+import {
+	type AccountSyncStatus,
+	type SyncLine,
+	type SyncRequestFailure,
+	syncLine,
+} from '@/tools/sync-status';
 
 const props = defineProps<{
 	/** Cuál de los tres paneles se ve. Sólo importa en una ventana angosta. */
@@ -26,6 +33,8 @@ const props = defineProps<{
 	salientes: Saliente[];
 	/** Cuánto correo sin leer hay entre todas, para la entrada de arriba. */
 	sinLeerEnTotal: number;
+	syncStatuses?: AccountSyncStatus[];
+	refreshFailures?: SyncRequestFailure[];
 }>();
 const emit = defineEmits<{
 	elegir: [accountId: string];
@@ -35,6 +44,18 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+
+/** La línea de sincronización de una cuenta, o `null` si no hay nada que decir. */
+function syncLineOf(accountId: string): SyncLine | null {
+	return syncLine(
+		props.syncStatuses?.find((s) => s.account_id === accountId),
+		props.refreshFailures?.find((f) => f.account_id === accountId)
+	);
+}
+
+function syncText(line: SyncLine): string {
+	return interpolar(t(line.key), line.arg);
+}
 
 function unreadOf(cuenta: Cuenta): string {
 	return unreadLabel(cuenta.sin_leer);
@@ -152,6 +173,21 @@ function folderName(c: Casilla): string {
               class="mt-0.5 self-start"
               :label="unreadOf(cuenta)" />
           </ListRow>
+          <!-- Cómo va la sincronización: la lista sale de lo que ya está en el
+               sistema, y sin esta línea no habría forma de saber si está al
+               día, si se está trayendo o si algo falló. Fuera de la fila, que
+               es un botón: el estado no se elige. -->
+          <span
+            v-if="syncLineOf(cuenta.account_id)"
+            class="flex items-start gap-1.5 px-2 text-tx-muted text-xs"
+            data-testid="sync-status"
+            role="status">
+            <StatusDot
+              :tone="syncLineOf(cuenta.account_id)!.tone"
+              :pulse="syncLineOf(cuenta.account_id)!.pulse"
+              class="mt-1" />
+            <span class="min-w-0 break-words">{{ syncText(syncLineOf(cuenta.account_id)!) }}</span>
+          </span>
         </li>
       </ul>
 

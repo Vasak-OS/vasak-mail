@@ -65,6 +65,7 @@ pub fn run() {
             comandos::open_message,
             comandos::marcar_leido,
             comandos::request_sync,
+            comandos::sync_status,
             comandos::enviar_mensaje,
             comandos::leer_adjunto,
             comandos::guardar_adjunto,

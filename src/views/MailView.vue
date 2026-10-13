@@ -48,6 +48,10 @@ const {
 	cargarCuentas,
 	refresh,
 	reload,
+	syncStatuses,
+	refreshFailures,
+	loadSyncStatus,
+	onSyncStatusChanged,
 	elegir,
 	elegirCasilla,
 	abrir,
@@ -411,6 +415,7 @@ function alApretar(evento: KeyboardEvent) {
 
 let dejarDeEscuchar: UnlistenFn | null = null;
 let dejarDeEscucharMailto: UnlistenFn | null = null;
+let stopWatchingStatus: UnlistenFn | null = null;
 /**
  * Si la vista ya se desmontó.
  *
@@ -454,6 +459,19 @@ onMounted(async () => {
 		console.error('no se pudo escuchar los avisos de correo nuevo', e);
 	}
 
+	// El estado de la sincronización de cada cuenta, y cada vez que cambia.
+	try {
+		const cancelar = await listen('mail-sync-status', () => onSyncStatusChanged());
+		if (desmontada) {
+			cancelar();
+		} else {
+			stopWatchingStatus = cancelar;
+		}
+	} catch (e) {
+		console.error('no se pudo escuchar el estado de la sincronización', e);
+	}
+	void loadSyncStatus();
+
 	// Lo que pida un `mailto:` mientras la ventana ya está abierta. El oyente va
 	// antes de cargar las cuentas, por lo mismo que el de arriba: los dos
 	// segundos de la primera carga son tiempo de sobra para hacer clic en una
@@ -495,6 +513,7 @@ onUnmounted(() => {
 	rowObserver?.disconnect();
 	window.removeEventListener('keydown', alApretar);
 	dejarDeEscuchar?.();
+	stopWatchingStatus?.();
 	dejarDeEscucharMailto?.();
 });
 </script>
@@ -624,6 +643,8 @@ onUnmounted(() => {
           :casilla="casilla"
           :salientes="salientes"
           :sin-leer-en-total="sinLeerEnTotal"
+          :sync-statuses="syncStatuses"
+          :refresh-failures="refreshFailures"
           @elegir="elegirCuenta"
           @elegir-casilla="elegirCarpeta"
           @escribir="escribir"

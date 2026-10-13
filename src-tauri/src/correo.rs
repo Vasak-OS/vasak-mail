@@ -415,37 +415,124 @@ fn opened_from_store(m: StoredMessage) -> Option<Abierto> {
     })
 }
 
-/// Le pide al sincronizador que traiga ya lo nuevo de unas cuentas: es el
-/// botón «Actualizar». No espera a que termine; lo que llegue se avisa con la
-/// señal `Changed` del almacén, como cualquier otra novedad.
-///
-/// Un fallo de una cuenta no frena a las demás, y no es un error para la
-/// ventana: el almacén tiene un límite por llamante, y lo que ya está se
-/// sigue viendo.
-pub async fn request_sync(account_ids: &[String]) {
-    for id in account_ids {
-        if let Err(e) = call_store_unit("RequestSync", &(id.as_str(),)).await {
-            eprintln!("[correo] no se pudo pedir una vuelta de una cuenta: {e}");
-        }
+/// Una cuenta a la que no se le pudo pedir una vuelta, y por qué. La ventana
+/// lo dice al lado de la cuenta: un «Actualizar» que no hizo nada y no lo dice
+/// se lee como que no había nada nuevo.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct SyncRequestFailure {
+    pub account_id: String,
+    /// `denied` (sin permiso), `too_soon` (se pidió hace un momento),
+    /// `unavailable` (el sincronizador no está) o `failed`.
+    pub reason: &'static str,
+}
+
+/// Por qué no se aceptó un pedido, a partir del nombre del error de D-Bus.
+pub fn failure_reason(error_name: Option<&str>) -> &'static str {
+    match error_name {
+        Some("org.freedesktop.DBus.Error.AccessDenied") => "denied",
+        Some("org.freedesktop.DBus.Error.LimitsExceeded") => "too_soon",
+        Some("org.freedesktop.DBus.Error.ServiceUnknown")
+        | Some("org.freedesktop.DBus.Error.NameHasNoOwner")
+        | Some("org.freedesktop.DBus.Error.UnknownObject")
+        | Some("org.freedesktop.DBus.Error.UnknownMethod") => "unavailable",
+        _ => "failed",
     }
 }
 
-async fn call_store_unit<A>(metodo: &str, argumentos: &A) -> Result<(), String>
-where
-    A: serde::ser::Serialize + zbus::zvariant::DynamicType,
-{
-    conectar()
-        .await?
-        .call_method(
-            Some(SERVICIO),
-            STORE_PATH,
-            Some(STORE_INTERFACE),
-            metodo,
-            argumentos,
-        )
-        .await
-        .map_err(|e| format!("{metodo}: {e}"))?;
-    Ok(())
+/// El nombre de un error de D-Bus, si lo tiene.
+fn error_name(error: &zbus::Error) -> Option<String> {
+    match error {
+        zbus::Error::MethodError(name, _, _) => Some(name.to_string()),
+        zbus::Error::FDO(e) => Some(zbus::DBusError::name(e.as_ref()).to_string()),
+        _ => None,
+    }
+}
+
+/// Le pide al sincronizador que traiga ya lo nuevo de unas cuentas: es el
+/// botón «Actualizar». No espera a que termine; lo que llegue se avisa con la
+/// señal `Changed` del almacén, y el estado con `StatusChanged`. Devuelve las
+/// cuentas a las que no se les pudo pedir, y por qué; un fallo de una no
+/// frena a las demás.
+pub async fn request_sync(account_ids: &[String]) -> Vec<SyncRequestFailure> {
+    let conexion = match conectar().await {
+        Ok(conexion) => conexion,
+        Err(e) => {
+            eprintln!("[correo] no se pudo pedir una vuelta: {e}");
+            return account_ids
+                .iter()
+                .map(|id| SyncRequestFailure {
+                    account_id: id.clone(),
+                    reason: "unavailable",
+                })
+                .collect();
+        }
+    };
+    let mut failures = Vec::new();
+    for id in account_ids {
+        if let Err(e) = conexion
+            .call_method(
+                Some(SERVICIO),
+                STORE_PATH,
+                Some(STORE_INTERFACE),
+                "RequestSync",
+                &(id.as_str(),),
+            )
+            .await
+        {
+            let reason = failure_reason(error_name(&e).as_deref());
+            eprintln!("[correo] no se pudo pedir una vuelta de una cuenta ({reason})");
+            failures.push(SyncRequestFailure {
+                account_id: id.clone(),
+                reason,
+            });
+        }
+    }
+    failures
+}
+
+/// El estado de la sincronización del correo de una cuenta, como lo da
+/// `GetStatus`.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct AccountSyncStatus {
+    pub account_id: String,
+    /// `off`, `pending`, `syncing`, `synced`, `unavailable` o `failed`.
+    pub state: String,
+    /// Qué pasó, si falló o no está disponible. Lo escribe el almacén.
+    pub detail: String,
+    /// Cuándo terminó la última vuelta buena (RFC 3339), si hubo.
+    pub last_synced_at: Option<String>,
+}
+
+/// El estado del área `area` de cada cuenta, de la respuesta de `GetStatus`.
+/// Las cuentas sin esa área no aparecen.
+pub fn statuses_from(json: &str, area: &str) -> Result<Vec<AccountSyncStatus>, String> {
+    let value: serde_json::Value = serde_json::from_str(json)
+        .map_err(|e| format!("no se pudo leer el estado del almacén: {e}"))?;
+    let accounts = value
+        .get("accounts")
+        .and_then(|a| a.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let text =
+        |v: &serde_json::Value, k: &str| v.get(k).and_then(|x| x.as_str()).map(str::to_string);
+    Ok(accounts
+        .iter()
+        .filter_map(|account| {
+            let shown = account.get(area)?;
+            Some(AccountSyncStatus {
+                account_id: text(account, "account_id")?,
+                state: text(shown, "state").unwrap_or_else(|| "off".into()),
+                detail: text(shown, "detail").unwrap_or_default(),
+                last_synced_at: text(shown, "last_synced_at"),
+            })
+        })
+        .collect())
+}
+
+/// El estado de la sincronización del correo de cada cuenta.
+pub async fn sync_status() -> Result<Vec<AccountSyncStatus>, String> {
+    let json = call_store("GetStatus", &()).await?;
+    statuses_from(&json, "email")
 }
 
 /// Las cuentas que tienen correo, con su contador de sin leer.
@@ -876,6 +963,22 @@ fn store_change_rule() -> Result<zbus::MatchRule<'static>, String> {
         .build())
 }
 
+/// La señal de que cambió el estado de alguna base del almacén: también sólo
+/// del sincronizador y de su objeto.
+fn store_status_rule() -> Result<zbus::MatchRule<'static>, String> {
+    Ok(zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .sender(SERVICIO)
+        .and_then(|r| r.path(STORE_PATH))
+        .and_then(|r| r.interface(STORE_INTERFACE))
+        .and_then(|r| r.member("StatusChanged"))
+        .map_err(|e| format!("no se pudo armar el filtro del estado: {e}"))?
+        .build())
+}
+
+/// El evento que ve la ventana cuando cambia el estado de la sincronización.
+pub const STATUS_EVENT: &str = "mail-sync-status";
+
 async fn seguir(app: &tauri::AppHandle) -> Result<(), String> {
     use futures_util::StreamExt;
     use tauri::Emitter;
@@ -913,19 +1016,37 @@ async fn seguir(app: &tauri::AppHandle) -> Result<(), String> {
             .map_err(|e| format!("no se pudo escuchar al almacén: {e}"))?,
     );
 
-    let mut avisos = futures_util::stream::select_all(flujos);
+    // Cada aviso con su clase: los del correo y los del almacén hacen releer la
+    // lista; los del estado, sólo el estado.
+    let correo = futures_util::stream::select_all(flujos).map(|m| m.map(|_| false));
+    let estado = zbus::MessageStream::for_match_rule(store_status_rule()?, &conexion, None)
+        .await
+        .map_err(|e| format!("no se pudo escuchar el estado del almacén: {e}"))?
+        .map(|m| m.map(|_| true));
+    let mut avisos = futures_util::stream::select(correo, estado);
 
     while let Some(aviso) = avisos.next().await {
-        if aviso.is_ok() {
-            // Una vuelta del almacén escribe de a lotes y avisa por cada uno: se
-            // juntan los que llegan seguidos en un solo aviso, para que la
-            // ventana relea una vez y no una por lote.
-            tokio::time::sleep(SETTLE).await;
-            while let Some(Some(_)) = futures_util::FutureExt::now_or_never(avisos.next()) {}
-            // Sin detalle: el evento dice «volvé a leer», y la ventana relee y ve
-            // el estado completo. Mandar el contenido acá sería reconstruir del
-            // lado de la ventana un estado que el servicio ya tiene entero.
+        let Ok(first) = aviso else {
+            continue;
+        };
+        // Una vuelta escribe de a lotes y avisa por cada uno: se juntan los
+        // que llegan seguidos, y la ventana recibe un aviso de cada clase.
+        // Sin detalle: el evento dice «volvé a leer», y la ventana relee y ve
+        // el estado completo.
+        tokio::time::sleep(SETTLE).await;
+        let mut status = first;
+        let mut mail = !first;
+        while let Some(Some(next)) = futures_util::FutureExt::now_or_never(avisos.next()) {
+            if let Ok(is_status) = next {
+                status |= is_status;
+                mail |= !is_status;
+            }
+        }
+        if mail {
             let _ = app.emit(EVENTO, ());
+        }
+        if status {
+            let _ = app.emit(STATUS_EVENT, ());
         }
     }
 
