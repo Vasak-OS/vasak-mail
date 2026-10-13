@@ -1,142 +1,370 @@
-# vasak-mail
+# Vasak mail
 
-El correo de VasakOS. Muestra los mensajes de las cuentas conectadas —las que se
-agregan desde Configuración— y deja leerlos.
 
-Tauri 2 + Vue 3 + TypeScript + Tailwind 4, sobre la plantilla
-[`vapp`](https://github.com/Vasak-OS/vapp).
 
 ---
 
-## Esta aplicación no habla IMAP, y ése es el punto
+## Tecnología
 
-No es una etapa pendiente: es lo que hace que sea segura de tener abierta.
+[![Rust](https://img.shields.io/badge/Rust-1.82%2B-orange?style=flat&logo=rust)](https://www.rust-lang.org/) [![Tauri](https://img.shields.io/badge/Tauri-2.0-24283b?style=flat&logo=tauri)](https://tauri.app/) [![Vue](https://img.shields.io/badge/Vue-3.5-42b883?style=flat&logo=vue.js)](https://vuejs.org/) [![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178c6?style=flat&logo=typescript)](https://www.typescriptlang.org/)
 
-El correo lo lee `vasak-accounts-sync`, un servicio del usuario que ya mantiene
-una conexión abierta con el servidor esperando avisos. Esta ventana le pide la
-lista y el texto por el bus de sesión. Con eso:
+## Estado
 
-- **Nunca toca una credencial.** No pide `account.email`, no ve una contraseña y
-  no manda un `LOGIN`. Un `vasak-mail` reemplazado no llega a la casilla de
-  nadie: no tiene con qué.
-- **No puede ni pedirla.** `vasak-permissions` declara el alcance de
-  `/usr/bin/vasak-mail` como **vacío**, así que un pedido de `account.email` se
-  niega sin que a la persona le aparezca ningún diálogo. Sin eso, la separación
-  sería una convención del código.
-- **No abre una segunda conexión** contra el servidor de la persona. Hay
-  servidores que las cuentan y cortan.
-- **El parser de MIME vive del otro lado**, en un proceso que no dibuja nada. Es
-  la parte que muerde lo que escribió un desconocido.
-
-Es la aplicación más expuesta del escritorio —lo que muestra lo escribió
-cualquiera que sepa la dirección de la persona— y es la que menos tiene para
-perder.
+[![CI](https://github.com/Vasak-OS/vasak-mail/actions/workflows/ci.yml/badge.svg)](https://github.com/Vasak-OS/vasak-mail/actions/workflows/ci.yml)
+[![Versión](https://img.shields.io/github/v/release/Vasak-OS/vasak-mail?style=flat&label=Versi%C3%B3n)](https://github.com/Vasak-OS/vasak-mail/releases)
+[![Licencia](https://img.shields.io/github/license/Vasak-OS/vasak-mail?style=flat)](LICENSE)
+[![Cobertura](https://sonarcloud.io/api/project_badges/measure?project=Vasak-OS_vasak-mail&metric=coverage&style=flat)](https://sonarcloud.io/summary/new_code?id=Vasak-OS_vasak-mail)
+[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=Vasak-OS_vasak-mail&metric=alert_status&style=flat)](https://sonarcloud.io/summary/new_code?id=Vasak-OS_vasak-mail)
+[![Tamaño repo](https://img.shields.io/github/repo-size/Vasak-OS/vasak-mail?style=flat)](https://github.com/Vasak-OS/vasak-mail)
 
 ---
 
-## Qué hace hoy, y qué no
+## Descripción
 
-**Hace:** lista las cuentas con su contador de sin leer, muestra los últimos 200
-mensajes de la casilla de entrada, abre uno y muestra su texto, lo marca como
-leído en el servidor cuando la persona lo pide, y **escribe y responde**.
 
-**Todavía no hace:**
 
-- **Adjuntar archivos**, ni abrir los que llegan. Se dice que el mensaje trae uno
-  —quien lee un mensaje y no se entera de que traía un archivo, pierde el
-  archivo— pero no se puede abrir.
-- **Guardar copia en «Enviados».**
-- **Otras carpetas.** Sólo la casilla de entrada.
-- **Buscar.**
+**Para el usuario:** 
 
-### Escribir
-
-«Enviar» **no espera al servidor**: el mensaje queda guardado en el disco del
-servicio y sale en cuanto se pueda. Se dice en la ventana, porque cambia lo que
-la persona espera del botón — y es lo que hace que cerrar la ventana enseguida no
-pierda nada. Lo que sí vuelve en el acto es el rechazo de un borrador que no se
-puede armar, y ahí **la ventana no se cierra**: lo escrito sigue en pantalla con
-el error a la vista.
-
-**Lo que no salió se muestra al costado**, no escondido en una carpeta que hay
-que ir a mirar. Un mensaje que la persona cree mandado y quedó trabado es de las
-peores cosas que puede hacer un cliente de correo: la conversación del otro lado
-nunca llega y nadie se entera hasta que es tarde. El motivo va con el mensaje —«no
-se pudo enviar» a secas no dice si la dirección estaba mal escrita o si el
-servidor estaba caído, que tienen arreglos distintos.
-
-**El remitente no lo elige esta ventana.** El borrador viaja sin `De` y lo pone
-el servicio con la dirección de la cuenta: mandar desde otra hace que el servidor
-rechace, o peor, que el mensaje llegue y lo marquen como falsificado.
-
-### Responder
-
-La respuesta va al `Reply-To` si el mensaje lo trae, y al remitente si no. La
-diferencia importa: las listas de correo y los sistemas de tickets ponen
-`Reply-To` justamente para que la respuesta no le llegue sólo a quien apretó
-mandar.
-
-El asunto lleva un solo «Re:» —responder cinco veces en una conversación no puede
-dejar «Re: Re: Re: Re: Re:»—, el original se cita con `>` y se recorta a cien
-líneas, y el cursor arranca **arriba** de la cita, que es donde se escribe.
+**Integración VasakOS:** Integra con el ecosistema VasakOS vía D-Bus y configuración compartida.
 
 ---
 
-## Cómo se muestra un mensaje
+## Arquitectura (diagramas)
 
-Como **texto**, con `white-space: pre-wrap`, y nunca como HTML.
+> Copia y pega la plantilla que necesites, descomenta y adapta.
 
-Un motor de HTML acá traería imágenes remotas —que le confirman al remitente que
-se leyó, y desde qué dirección IP—, CSS que puede tapar cosas, y una superficie
-enorme por nada. El sincronizador ya le saca las etiquetas a los mensajes que
-sólo vienen en HTML; lo que llega es texto, y Vue escapa el contenido de una
-interpolación, así que tampoco puede volver a convertirse en marcado.
+### Flujo de datos
 
-**El nombre y la dirección del remitente se muestran los dos.** Un remitente que
-se pone de nombre «soporte@banco.com» y escribe desde otra dirección es el fraude
-más común que hay, y mostrar sólo el nombre es exactamente lo que lo hace
-funcionar.
+```mermaid
+<!--
+graph TD
+    A[Entrada: Teclado / Ratón / D-Bus / Sistema] --> B[Procesamiento: Core Rust + Tauri Commands]
+    B --> C[Salida: UI actualizada / Acciones del sistema]
+    style A fill:#e1f5fe
+    style C fill:#e8f5e9
+-->
+```
 
-**Abrir un mensaje no lo marca como leído.** El sincronizador trae todo con
-`BODY.PEEK`, que mira sin marcar, justamente para que sea una decisión: que pasar
-por encima de un mensaje con las flechas te vacíe el contador de sin leer es de
-los errores más molestos que puede tener un cliente de correo. Hay un botón.
+### Componentes internos
+
+```mermaid
+<!--
+flowchart LR
+    subgraph App[Vasak mail]
+        UI[Frontend Vue 3 + vue-libvasak]
+        Core[Core Rust: lógica principal]
+        IPC[Tauri Commands / Eventos]
+        System[Systemd / D-Bus / PipeWire / Wayland]
+    end
+    UI --> IPC
+    IPC --> Core
+    Core --> DBus[(D-Bus / zbus)]
+    Core --> System
+    style UI fill:#f3e5f5
+    style Core fill:#e3f2fd
+    style DBus fill:#fff3e0
+    style System fill:#fce4ec
+-->
+```
+
+### Integración en el sistema VasakOS
+
+```mermaid
+<!--
+C4Context
+    title Vasak mail en VasakOS
+    Person(usuario, "Usuario", "Persona que usa el sistema")
+    System_Boundary(c1, "VasakOS") {
+        System(app, "Vasak mail", "")
+        System_Ext(settings, "vasak-settings", "Configuración central")
+        System_Ext(keyring, "vasak-keyring", "Secrets y claves")
+        System_Ext(accounts, "vasak-accounts", "Cuentas e identidad")
+        System_Ext(permissions, "vasak-permissions", "Permisos y portales")
+    }
+    System_Ext(systemd, "systemd", "Gestión de servicios")
+    System_Ext(dbus, "D-Bus", "Bus de mensajes del sistema")
+    System_Ext(wayland, "Wayland / Wayfire", "Compositor")
+    System_Ext(pipewire, "PipeWire", "Multimedia")
+    Rel(usuario, app, "Usa")
+    Rel(app, settings, "Lee/escribe config")
+    Rel(app, keyring, "Guarda/lee secrets")
+    Rel(app, accounts, "Identidad de cuenta")
+    Rel(app, permissions, "Solicita permisos")
+    Rel(app, systemd, "Activación / sockets")
+    Rel(app, dbus, "Expone / consume interfaces")
+    Rel(app, wayland, "Superficies / protocolos")
+    Rel(app, pipewire, "Streams de audio/video")
+-->
+```
 
 ---
 
-## Cómo está armado
+## Instalación
 
-| archivo | qué resuelve |
-|---|---|
-| `src-tauri/src/correo.rs` | Habla con `vasak-accounts-sync` por el bus de sesión, y traduce sus señales a un evento de la ventana. |
-| `src-tauri/src/comandos.rs` | Lo que la ventana puede pedir. Una capa fina: el trabajo lo hace el servicio. |
-| `src/composables/use-correo.ts` | Qué cuenta se mira, qué mensaje está abierto, y qué se está cargando. |
-| `src/tools/fecha.ts` | La hora si llegó hoy, el día si no. |
+### Arch Linux (repo oficial)
 
-El correo nuevo aparece solo: el servicio manda una señal cuando cambia algo y la
-ventana relee. Sin eso habría que apretar «Actualizar» para enterarse de algo que
-el servicio ya sabe, o sondear cada tantos segundos — gastar batería para
-enterarse más tarde.
+```bash
+pacman -S vasak-vasak-mail
+```
+
+### Debian / Ubuntu (.deb)
+
+```bash
+wget https://github.com/Vasak-OS/vasak-mail/releases/download/v{{VERSION}}/vasak-vasak-mail_{{VERSION}}_amd64.deb
+sudo apt install ./vasak-vasak-mail_{{VERSION}}_amd64.deb
+```
+
+### Desde fuente
+
+```bash
+git clone https://github.com/Vasak-OS/vasak-mail.git
+cd vasak-mail
+
+# Desarrollo (recarga en caliente frontend + backend)
+bun run dev
+
+# Build producción
+bun run build
+
+# Solo frontend
+bun run build:frontend
+
+# Solo backend Rust
+cargo build --release --locked
+```
+
+### Flatpak / AppImage
+
+> *Placeholder: añadir cuando exista paquete Flatpak o AppImage oficial.*
+
+---
+
+## Uso rápido
+
+```bash
+# Se lanza automáticamente (systemd --user) o manualmente:
+vasak-mail
+```
+
+### Atajos / flags principales
+
+| Acción | Comando / Tecla |
+|--------|-----------------|
+| Acción principal | `vasak-mail` |
+| Configuración | `vasak-mail --config` |
+| Ayuda | `vasak-mail --help` |
+
+> **Captura:** `assets/demo.gif` *(placeholder — sustituir por GIF real)*
+
+---
+
+## Configuración
+
+### Archivo de configuración
+
+```
+~/.config/vasak/vasak-mail.toml
+```
+
+### Variables de entorno
+
+| Variable | Descripción | Por defecto |
+|----------|-------------|-------------|
+| `VASAK_DEBUG` | Activa logs de depuración en consola | `false` |
+| `VASAK_PROFILE` | Perfil de rendimiento: `balanced`, `performance`, `power-save` | `balanced` |
+
+### Integración con `tauri-plugin-config-manager`
+
+- Esquemas de color: respeta `--ui-primary`, `--ui-surface`, `--ui-focus`, `--ui-on-surface`, `--ui-border`
+- Tema de iconos: usa el tema del sistema (`vasakos-icon-theme`) vía `vicon` lookup
+- Radio de bordes: variable CSS `--ui-radius` del esquema activo (por defecto 12px)
+- Fuentes: `--ui-font-family`, `--ui-font-size-base` desde el esquema
 
 ---
 
 ## Desarrollo
 
+### Requisitos
+
+- **Rust:** `rustup` toolchain estable (`rust-toolchain.toml` fija la versión)
+- **Node / bun:** `bun` ≥ 1.1 (nunca npm/yarn/pnpm para apps Tauri)
+- **Sistema:** `pkg-config`, `libgtk-3-dev`, `libwebkit2gtk-4.1-dev`, `libssl-dev`
+- *`libgtk-layer-shell-dev`, `wayland-protocols`, `wayfire-dev` para Wayland*
+
+### Dependencias de desarrollo
+
+#### Sistema (paquetes Arch / Debian / Fedora)
+
+`base-devel`, `pkgconf`, `libssl-dev`, `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`, `gstreamer1.0-plugins-base`, `gstreamer1.0-plugins-good`, `libpipewire-0.3-dev`, `libwireplumber-0.5-dev`, `libdbus-1-dev`, `libudev-dev`, `libxkbcommon-dev`, `libwayland-dev`, `meson`, `ninja`, `clang`, `lld`
+
+#### Rust
+
+`rustup` → `stable` + `rustfmt` + `clippy`
+
+#### Node
+
+**Solo `bun`** (nunca npm/yarn/pnpm para apps Tauri). `bun --version` ≥ 1.1
+
+#### Herramientas CLI
+
+`just` (command runner), `cargo-binstall` (opcional), `cargo-llvm-cov` (para cobertura)
+
+### Correr la app en desarrollo
+
 ```bash
-bun install
-bun test                                          # el frontend
-cargo test --manifest-path src-tauri/Cargo.toml   # el backend
-bun run lint
-bunx --bun tauri dev
+# Frontend (Vite dev server + Tauri dev)
+bun run tauri dev
+
+# Solo frontend (Vite)
+bun run dev
+
+# Solo backend (cargo watch)
+cargo watch -x "run --bin vasak-mail"
 ```
 
-Para probar la ventana de verdad hace falta `--features custom-protocol`, o el
-webview abre vacío:
+### Compilar / Build de release
 
 ```bash
-bunx --bun tauri build --debug --features custom-protocol
+# Build completo (frontend + backend + bundle)
+bun run tauri build
+
+# Solo frontend (para testear bundle después)
+bun run build
+
+# Solo backend Rust (binario optimizado)
+cargo build --release --locked
+
+# Paquetes nativos
+# Arch: makepkg -sf en PKGBUILDS/vasak-mail/
+# Debian: cargo deb --no-build --target-dir src-tauri/target/release/debian
 ```
 
-Y hace falta `vasak-accounts-sync` corriendo con al menos una cuenta de correo
-conectada. Sin eso la aplicación abre igual y lo dice: la lista de cuentas sale
-vacía con la explicación de dónde conectar una.
+### Targets principales
+
+```bash
+# Desarrollo (Tauri dev server + hot reload)
+bun run dev
+
+# Build producción
+bun run build
+
+# Solo frontend
+bun run build:frontend
+
+# Solo backend Rust
+cargo build --release --locked
+
+# Lint + tipos (pre-commit / CI)
+bunx --bun biome check .
+bunx vue-tsc --noEmit
+cargo fmt --check
+```
+
+### Pruebas
+
+```bash
+# Suite completa JS (Vitest via bun:test)
+bun test
+
+# Suite completa Rust (crates en pruebas_rust del CI)
+cargo test -p vasak-mail-core -p vasak-mail-ui --locked
+
+# Integración (requiere Wayfire corriendo)
+cargo test -p vasak-mail-integration --locked -- --ignored
+```
+
+### Convención de commits
+
+[Conventional Commits](https://www.conventionalcommits.org/es/v1.0.0/):
+
+```
+<tipo>(<ámbito>): <descripción corta>
+
+[cuerpo opcional]
+
+[pie opcional: Closes #N]
+```
+
+Tipos habituales: `feat`, `fix`, `bugfix`, `docs`, `ci`, `chore`, `security`, `refactor`, `perf`, `test`.
+
+### Cómo abrir PR
+
+1. Rama desde `origin/main`:
+   ```bash
+   git worktree add -b feat/tema ~/wt/vasak-mail-tema origin/main
+   ```
+2. Prefijos de rama: `fix/`, `feat/`, `bugfix/`, `docs/`, `ci/`, `chore/`, `security/`
+3. Escribe el fix → **`qa` escribe las pruebas** (fallan sin el fix) → suite verde → abre PR
+4. Al abrir PR, **cuatro cosas obligatorias**:
+   - Asignado a `JoaquinDecima`
+   - Etiqueta `enhancement` o `bug` (+ `ci` / `dependencies` si aplica)
+   - Añadido al proyecto «VasakOS Roadmap»
+   - Status **In Progress**
+
+---
+
+## Arquitectura (texto)
+
+### Crates / módulos principales
+
+| `vasak-mail-core` | Lógica compartida: estado, D-Bus, IPC |
+| `vasak-mail-ui` | Frontend Vue 3 + componentes vue-libvasak |
+| `vasak-mail-tauri` | Puente Tauri: commands, eventos, WebView |
+
+### Interfaces D-Bus / zbus expuestas
+
+| `org.vasak.Vasak-mail` | `GetState()`, `StateChanged(dict)`, `SetConfig(dict)` | Estado y control principal |
+| `org.vasak.Vasak-mail.Panel` | `SetPosition(string)`, `SetAutohide(bool)`, `Height(u32)` | Configuración panel en runtime |
+
+### Puntos de extensión
+
+- **Plugins:** Sistema de plugins modular
+- **Hooks:** Hooks de ciclo de vida
+- **API pública Rust:** API pública del crate principal
+
+### Features / Cargo features
+
+| Feature | Descripción | Default |
+|---------|-------------|---------|
+| `system-tray` | Bandeja del sistema + menú contextual | ✓ |
+| `notifications` | Integración libnotify / freedesktop | ✓ |
+| `updater` | Auto-actualización (tauri-plugin-updater) | |
+| `devtools` | DevTools en release (solo debug) | |
+| `experimental-wayland` | Protocolo Wayland inestable | |
+
+Y para apps Tauri+Vue: features del `tauri.conf.json` → `bundle` / `plugins` / `allowlist` (capabilities).
+
+---
+
+## Pruebas y calidad
+
+- **Cobertura objetivo:** ≥ 80 % del código nuevo (SonarCloud Quality Gate)
+- **Informes:** GitHub Actions → pestaña *SonarCloud Code Analysis* → enlace a SonarCloud
+- **Añadir pruebas:** ver `AGENTS.md` sección 9 (mapa de repos y comandos de prueba)
+- **Regla:** toda corrección lleva prueba escrita por `qa` que falla sin el fix
+
+---
+
+## Contribuir
+
+- **Guía:** [.github/CONTRIBUTING.md](https://github.com/Vasak-OS/.github/blob/main/CONTRIBUTING.md)
+- **Plantillas de issue:** [.github/ISSUE_TEMPLATE/](https://github.com/Vasak-OS/.github/tree/main/ISSUE_TEMPLATE)
+- **Código de conducta:** [CODE_OF_CONDUCT.md](https://github.com/Vasak-OS/.github/blob/main/CODE_OF_CONDUCT.md)
+
+---
+
+## Donadores / Sponsors
+
+[![Sponsors](https://img.shields.io/github/sponsors/Vasak-OS?style=flat&label=Sponsors)](https://github.com/sponsors/Vasak-OS)
+
+> **Backers:** *Actualizado automáticamente en CI desde GitHub Sponsors / OpenCollective / Polar.*
+
+[💖 Donar al proyecto](https://github.com/sponsors/Vasak-OS)
+
+---
+
+## Licencia
+
+`GPL-3.0` — Copyright © 2026 **Vasak-OS Contributors**
+
+[Ver licencia completa](LICENSE)
