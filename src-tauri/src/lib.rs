@@ -55,6 +55,10 @@ pub fn run() {
         .plugin(tauri_plugin_config_manager::init())
         .plugin(tauri_plugin_vicons::init())
         .plugin(tauri_plugin_shell::init())
+        // El almacén del sistema y la interfaz en vivo del sincronizador, con
+        // el dueño del nombre comprobado: lecturas, «Actualizar», el estado y
+        // el aviso de lo nuevo del correo.
+        .plugin(tauri_plugin_vsk_store::init(&["email"]))
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             comandos::listar_cuentas,
@@ -64,8 +68,6 @@ pub fn run() {
             comandos::traer_imagen,
             comandos::open_message,
             comandos::marcar_leido,
-            comandos::request_sync,
-            comandos::sync_status,
             comandos::enviar_mensaje,
             comandos::leer_adjunto,
             comandos::guardar_adjunto,
@@ -78,6 +80,7 @@ pub fn run() {
         // El sincronizador avisa cuando llega correo; esto lo traduce a un
         // evento que la ventana escucha. Ver `correo.rs`.
         .setup(|app| {
+            correo::use_store(tauri_plugin_vsk_store::StoreExt::store(app.handle()));
             correo::escuchar(app.handle().clone());
             // El `mailto:` con el que se abrió la aplicación, si lo hubo.
             //

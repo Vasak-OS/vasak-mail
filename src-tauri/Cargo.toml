@@ -1,6 +1,6 @@
 [package]
 name = "vasak-mail"
-version = "0.22.1"
+version = "0.23.0"
 description = "El correo de VasakOS"
 authors = ["Vasak Group", "Joaquin (Pato) Decima"]
 edition = "2021"
@@ -72,6 +72,10 @@ zbus = { version = "5", default-features = false, features = ["tokio"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"] }
 # Para el flujo de señales de D-Bus, que es cómo llega el aviso de correo nuevo.
 futures-util = "0.3"
+# El cliente del almacén del sistema y de la interfaz en vivo del
+# sincronizador, compartido con calendario, contactos y el escritorio:
+# comprueba al dueño del nombre antes de creerle o mandarle nada.
+tauri-plugin-vsk-store = "0.2"
 
 [dev-dependencies]
 # Sólo para el test que valida los catálogos de idioma: el plugin los parsea en

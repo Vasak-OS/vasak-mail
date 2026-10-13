@@ -1,4 +1,10 @@
 <script lang="ts" setup>
+import {
+	type AccountSyncStatus,
+	type SyncLine,
+	type SyncRequestFailure,
+	syncLine,
+} from '@vasakgroup/plugin-vsk-store';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import {
 	ActionButton,
@@ -16,12 +22,6 @@ import { TODAS } from '@/tools/bandeja';
 import { nombreDeCasilla } from '@/tools/casillas';
 import { claveSegunCantidad, interpolar } from '@/tools/interpolar';
 import { type Pane, paneVisibility } from '@/tools/panes';
-import {
-	type AccountSyncStatus,
-	type SyncLine,
-	type SyncRequestFailure,
-	syncLine,
-} from '@/tools/sync-status';
 
 const props = defineProps<{
 	/** Cuál de los tres paneles se ve. Sólo importa en una ventana angosta. */

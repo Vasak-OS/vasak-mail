@@ -20,7 +20,10 @@
 //! Lo que llega acá igual **es texto que escribió cualquiera**: se muestra, no se
 //! interpreta. Nada de esto se convierte en HTML ni se ejecuta.
 
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
+use tauri_plugin_vsk_store::{Error as StoreError, StoreClient, Verified};
 
 const SERVICIO: &str = "ar.net.vasak.os.AccountsSync";
 const RUTA: &str = "/ar/net/vasak/os/AccountsSync";
@@ -142,62 +145,75 @@ pub struct Abierto {
 
 /// El almacén del sistema: lo que el sincronizador ya trajo y guardó cifrado.
 /// Mismo nombre de bus, otro objeto. Ver `store_api.rs` de `vasak-accounts`.
-const STORE_PATH: &str = "/ar/net/vasak/os/AccountsStore";
-const STORE_INTERFACE: &str = "ar.net.vasak.os.AccountsStore";
-
 /// Cuántos mensajes se piden del almacén por casilla: los mismos que mostraba
 /// la lista en vivo.
 const STORE_PAGE: u32 = 200;
 
-async fn conectar() -> Result<zbus::Connection, String> {
-    // El bus de sesión y no el del sistema: el sincronizador es un servicio del
-    // usuario y lo que publica es suyo, así que no hay otra sesión que pueda
-    // escucharlo.
-    zbus::Connection::session().await.map_err(|e| {
-        format!(
-            "no se pudo contactar al servicio de correo: {e}. \
-             Comprobá que vasak-accounts-sync esté en ejecución."
-        )
-    })
+/// El cliente del almacén de `tauri-plugin-vsk-store`, que comprueba que el
+/// dueño del nombre del sincronizador sea el de verdad antes de creerle nada.
+/// Se guarda una vez al arrancar ([`use_store`]).
+static STORE: std::sync::OnceLock<Arc<StoreClient>> = std::sync::OnceLock::new();
+
+/// Guarda el cliente del plugin. Lo llama `lib.rs` al arrancar.
+pub fn use_store(client: Arc<StoreClient>) {
+    let _ = STORE.set(client);
 }
 
+fn store() -> Result<Arc<StoreClient>, String> {
+    STORE
+        .get()
+        .cloned()
+        .ok_or_else(|| "el cliente del almacén todavía no está listo".to_string())
+}
+
+/// El mensaje de un error del plugin, con el nombre del error de D-Bus cuando
+/// lo hay.
+fn describe(metodo: &str, error: &StoreError) -> String {
+    match error {
+        StoreError::Store {
+            name: Some(name), ..
+        } => format!("{metodo}: {name}: {error}"),
+        other => format!("{metodo}: {other}"),
+    }
+}
+
+/// Llama a la interfaz en vivo del sincronizador —abrir, marcar, **mandar
+/// correo**—, por el dueño comprobado: mandarle un correo a un impostor sería
+/// peor que leerle datos inventados.
 async fn llamar<A>(metodo: &str, argumentos: &A) -> Result<String, String>
 where
     A: serde::ser::Serialize + zbus::zvariant::DynamicType,
 {
-    conectar()
-        .await?
-        .call_method(Some(SERVICIO), RUTA, Some(INTERFAZ), metodo, argumentos)
+    store()?
+        .call_on(RUTA, INTERFAZ, metodo, argumentos)
         .await
-        .map_err(|e| format!("{metodo}: {e}"))?
-        .body()
-        .deserialize()
-        .map_err(|e| format!("respuesta inválida de {metodo}: {e}"))
+        .map_err(|e| describe(metodo, &e))
+}
+
+/// Lo mismo, para los métodos que no contestan nada.
+async fn llamar_sin_respuesta<A>(metodo: &str, argumentos: &A) -> Result<(), String>
+where
+    A: serde::ser::Serialize + zbus::zvariant::DynamicType,
+{
+    store()?
+        .call_on::<_, ()>(RUTA, INTERFAZ, metodo, argumentos)
+        .await
+        .map_err(|e| describe(metodo, &e))
 }
 
 /// Llama a un método del almacén.
 ///
-/// **Sin tope de tiempo** —zbus no pone uno—, a propósito: la primera lectura
-/// puede abrir el diálogo de permiso de `vasak-permissions`, y la respuesta
-/// llega cuando la persona lo cierra.
+/// **Sin tope de tiempo** a propósito: la primera lectura puede abrir el
+/// diálogo de permiso de `vasak-permissions`, y la respuesta llega cuando la
+/// persona lo cierra.
 async fn call_store<A>(metodo: &str, argumentos: &A) -> Result<String, String>
 where
     A: serde::ser::Serialize + zbus::zvariant::DynamicType,
 {
-    conectar()
-        .await?
-        .call_method(
-            Some(SERVICIO),
-            STORE_PATH,
-            Some(STORE_INTERFACE),
-            metodo,
-            argumentos,
-        )
+    store()?
+        .call_json(metodo, argumentos)
         .await
-        .map_err(|e| format!("{metodo}: {e}"))?
-        .body()
-        .deserialize()
-        .map_err(|e| format!("respuesta inválida de {metodo}: {e}"))
+        .map_err(|e| describe(metodo, &e))
 }
 
 /// Una casilla tal como la guarda el almacén.
@@ -415,126 +431,6 @@ fn opened_from_store(m: StoredMessage) -> Option<Abierto> {
     })
 }
 
-/// Una cuenta a la que no se le pudo pedir una vuelta, y por qué. La ventana
-/// lo dice al lado de la cuenta: un «Actualizar» que no hizo nada y no lo dice
-/// se lee como que no había nada nuevo.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub struct SyncRequestFailure {
-    pub account_id: String,
-    /// `denied` (sin permiso), `too_soon` (se pidió hace un momento),
-    /// `unavailable` (el sincronizador no está) o `failed`.
-    pub reason: &'static str,
-}
-
-/// Por qué no se aceptó un pedido, a partir del nombre del error de D-Bus.
-pub fn failure_reason(error_name: Option<&str>) -> &'static str {
-    match error_name {
-        Some("org.freedesktop.DBus.Error.AccessDenied") => "denied",
-        Some("org.freedesktop.DBus.Error.LimitsExceeded") => "too_soon",
-        Some("org.freedesktop.DBus.Error.ServiceUnknown")
-        | Some("org.freedesktop.DBus.Error.NameHasNoOwner")
-        | Some("org.freedesktop.DBus.Error.UnknownObject")
-        | Some("org.freedesktop.DBus.Error.UnknownMethod") => "unavailable",
-        _ => "failed",
-    }
-}
-
-/// El nombre de un error de D-Bus, si lo tiene.
-fn error_name(error: &zbus::Error) -> Option<String> {
-    match error {
-        zbus::Error::MethodError(name, _, _) => Some(name.to_string()),
-        zbus::Error::FDO(e) => Some(zbus::DBusError::name(e.as_ref()).to_string()),
-        _ => None,
-    }
-}
-
-/// Le pide al sincronizador que traiga ya lo nuevo de unas cuentas: es el
-/// botón «Actualizar». No espera a que termine; lo que llegue se avisa con la
-/// señal `Changed` del almacén, y el estado con `StatusChanged`. Devuelve las
-/// cuentas a las que no se les pudo pedir, y por qué; un fallo de una no
-/// frena a las demás.
-pub async fn request_sync(account_ids: &[String]) -> Vec<SyncRequestFailure> {
-    let conexion = match conectar().await {
-        Ok(conexion) => conexion,
-        Err(e) => {
-            eprintln!("[correo] no se pudo pedir una vuelta: {e}");
-            return account_ids
-                .iter()
-                .map(|id| SyncRequestFailure {
-                    account_id: id.clone(),
-                    reason: "unavailable",
-                })
-                .collect();
-        }
-    };
-    let mut failures = Vec::new();
-    for id in account_ids {
-        if let Err(e) = conexion
-            .call_method(
-                Some(SERVICIO),
-                STORE_PATH,
-                Some(STORE_INTERFACE),
-                "RequestSync",
-                &(id.as_str(),),
-            )
-            .await
-        {
-            let reason = failure_reason(error_name(&e).as_deref());
-            eprintln!("[correo] no se pudo pedir una vuelta de una cuenta ({reason})");
-            failures.push(SyncRequestFailure {
-                account_id: id.clone(),
-                reason,
-            });
-        }
-    }
-    failures
-}
-
-/// El estado de la sincronización del correo de una cuenta, como lo da
-/// `GetStatus`.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub struct AccountSyncStatus {
-    pub account_id: String,
-    /// `off`, `pending`, `syncing`, `synced`, `unavailable` o `failed`.
-    pub state: String,
-    /// Qué pasó, si falló o no está disponible. Lo escribe el almacén.
-    pub detail: String,
-    /// Cuándo terminó la última vuelta buena (RFC 3339), si hubo.
-    pub last_synced_at: Option<String>,
-}
-
-/// El estado del área `area` de cada cuenta, de la respuesta de `GetStatus`.
-/// Las cuentas sin esa área no aparecen.
-pub fn statuses_from(json: &str, area: &str) -> Result<Vec<AccountSyncStatus>, String> {
-    let value: serde_json::Value = serde_json::from_str(json)
-        .map_err(|e| format!("no se pudo leer el estado del almacén: {e}"))?;
-    let accounts = value
-        .get("accounts")
-        .and_then(|a| a.as_array())
-        .cloned()
-        .unwrap_or_default();
-    let text =
-        |v: &serde_json::Value, k: &str| v.get(k).and_then(|x| x.as_str()).map(str::to_string);
-    Ok(accounts
-        .iter()
-        .filter_map(|account| {
-            let shown = account.get(area)?;
-            Some(AccountSyncStatus {
-                account_id: text(account, "account_id")?,
-                state: text(shown, "state").unwrap_or_else(|| "off".into()),
-                detail: text(shown, "detail").unwrap_or_default(),
-                last_synced_at: text(shown, "last_synced_at"),
-            })
-        })
-        .collect())
-}
-
-/// El estado de la sincronización del correo de cada cuenta.
-pub async fn sync_status() -> Result<Vec<AccountSyncStatus>, String> {
-    let json = call_store("GetStatus", &()).await?;
-    statuses_from(&json, "email")
-}
-
 /// Las cuentas que tienen correo, con su contador de sin leer.
 pub async fn cuentas() -> Result<Vec<Cuenta>, String> {
     let json = llamar("MailboxStatus", &()).await?;
@@ -644,18 +540,9 @@ pub async fn open_message(
 /// pasar por encima de un mensaje con las flechas te vacíe el contador de sin
 /// leer es de los errores más molestos que puede tener un cliente de correo.
 pub async fn marcar_leido(account_id: &str, casilla: &str, uid: u32) -> Result<(), String> {
-    conectar()
-        .await?
-        .call_method(
-            Some(SERVICIO),
-            RUTA,
-            Some(INTERFAZ),
-            "MarkRead",
-            &(account_id, casilla, uid),
-        )
+    llamar_sin_respuesta("MarkRead", &(account_id, casilla, uid))
         .await
-        .map_err(|e| format!("no se pudo marcar como leído: {e}"))?;
-    Ok(())
+        .map_err(|e| format!("no se pudo marcar como leído: {e}"))
 }
 
 /// Un archivo para pegar a un mensaje, ya leído.
@@ -882,18 +769,9 @@ pub async fn salientes() -> Result<Vec<Saliente>, String> {
 
 /// Saca un mensaje de la cola sin mandarlo. **Se pierde lo escrito.**
 pub async fn descartar(id: &str) -> Result<(), String> {
-    conectar()
-        .await?
-        .call_method(
-            Some(SERVICIO),
-            RUTA,
-            Some(INTERFAZ),
-            "DiscardOutgoing",
-            &(id,),
-        )
+    llamar_sin_respuesta("DiscardOutgoing", &(id,))
         .await
-        .map_err(|e| format!("no se pudo descartar: {e}"))?;
-    Ok(())
+        .map_err(|e| format!("no se pudo descartar: {e}"))
 }
 
 /// El evento que ve la ventana cuando llega correo.
@@ -946,123 +824,88 @@ const SETTLE: std::time::Duration = std::time::Duration::from_millis(500);
 
 const ESPERA_ENTRE_INTENTOS: std::time::Duration = std::time::Duration::from_secs(15);
 
-/// La regla con que se escucha al almacén: su `Changed`, y sólo el del área
-/// del correo.
-fn store_change_rule() -> Result<zbus::MatchRule<'static>, String> {
+/// Las señales del correo en vivo, sólo del dueño comprobado del nombre del
+/// sincronizador y de su objeto: cualquier proceso de la sesión puede emitir
+/// una señal con esta interfaz.
+fn live_rule(owner: &Verified, member: &'static str) -> zbus::Result<zbus::MatchRule<'static>> {
     Ok(zbus::MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
-        // Sólo del dueño del nombre del sincronizador y de su objeto: cualquier
-        // proceso de la sesión puede emitir una señal con esta interfaz, y cada
-        // una hace releer la lista.
-        .sender(SERVICIO)
-        .and_then(|r| r.path(STORE_PATH))
-        .and_then(|r| r.interface(STORE_INTERFACE))
-        .and_then(|r| r.member("Changed"))
-        .and_then(|r| r.arg(0, "email"))
-        .map_err(|e| format!("no se pudo armar el filtro del almacén: {e}"))?
+        .sender(owner.owner.clone())?
+        .path(RUTA)?
+        .interface(INTERFAZ)?
+        .member(member)?
         .build())
 }
 
-/// La señal de que cambió el estado de alguna base del almacén: también sólo
-/// del sincronizador y de su objeto.
-fn store_status_rule() -> Result<zbus::MatchRule<'static>, String> {
+/// La señal del bus de que el nombre del sincronizador cambió de dueño: hay
+/// que volver a comprobar antes de creerle nada al nuevo.
+fn owner_rule() -> zbus::Result<zbus::MatchRule<'static>> {
     Ok(zbus::MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
-        .sender(SERVICIO)
-        .and_then(|r| r.path(STORE_PATH))
-        .and_then(|r| r.interface(STORE_INTERFACE))
-        .and_then(|r| r.member("StatusChanged"))
-        .map_err(|e| format!("no se pudo armar el filtro del estado: {e}"))?
+        .sender("org.freedesktop.DBus")?
+        .interface("org.freedesktop.DBus")?
+        .member("NameOwnerChanged")?
+        .arg(0, SERVICIO)?
         .build())
-}
-
-/// El evento que ve la ventana cuando cambia el estado de la sincronización.
-pub const STATUS_EVENT: &str = "mail-sync-status";
-
-/// Qué avisó el bus: algo del correo o del almacén, o el estado.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Notice {
-    Changed,
-    Status,
-}
-
-/// Qué eventos recibe la ventana por una ráfaga de avisos: uno de cada clase
-/// que llegó, nunca uno por aviso. Un `StatusChanged` solo no relee la lista, y
-/// un cambio del correo solo no relee el estado.
-fn events_for(burst: &[Notice]) -> Vec<&'static str> {
-    let mut events = Vec::new();
-    if burst.contains(&Notice::Changed) {
-        events.push(EVENTO);
-    }
-    if burst.contains(&Notice::Status) {
-        events.push(STATUS_EVENT);
-    }
-    events
 }
 
 async fn seguir(app: &tauri::AppHandle) -> Result<(), String> {
     use futures_util::StreamExt;
     use tauri::Emitter;
 
-    let conexion = conectar().await?;
+    let client = store()?;
+    let owner = client.verified().await.map_err(|e| e.to_string())?;
+    let conexion = &owner.connection;
 
     // Un flujo por señal, con su regla de coincidencia. La regla se le pide al
     // bus para que no despierte a este proceso por cada mensaje que pasa por la
-    // sesión, que son muchos.
+    // sesión, que son muchos. Lo que cambia en el almacén y en su estado lo
+    // avisa `tauri-plugin-vsk-store`.
     let mut flujos = Vec::new();
     for señal in ["MessagesChanged", "MailboxChanged", "OutboxChanged"] {
-        let regla = zbus::MatchRule::builder()
-            .msg_type(zbus::message::Type::Signal)
-            .interface(INTERFAZ)
-            .and_then(|r| r.member(señal))
-            .map_err(|e| format!("no se pudo armar el filtro de «{señal}»: {e}"))?
-            .build();
-
-        let flujo = zbus::MessageStream::for_match_rule(regla, &conexion, None)
+        let regla = live_rule(&owner, señal)
+            .map_err(|e| format!("no se pudo armar el filtro de «{señal}»: {e}"))?;
+        let flujo = zbus::MessageStream::for_match_rule(regla, conexion, None)
             .await
             .map_err(|e| format!("no se pudo escuchar «{señal}»: {e}"))?;
-        flujos.push(flujo);
+        flujos.push(flujo.map(|m| m.map(|_| false)).boxed());
     }
-
-    // Las dos a la vez: una `select` sobre los dos flujos deja que llegue la que
-    // llegue primero. Encadenarlas escucharía sólo la primera hasta que se
-    // cortara, que en la práctica es nunca.
-    // Y lo que cambió en el almacén, que es de donde sale la lista. Sólo el
-    // área del correo: el bus filtra por el primer argumento, así que un lote
-    // de contactos no despierta a esta ventana.
-    let regla = store_change_rule()?;
-    flujos.push(
-        zbus::MessageStream::for_match_rule(regla, &conexion, None)
-            .await
-            .map_err(|e| format!("no se pudo escuchar al almacén: {e}"))?,
-    );
-
-    // Cada aviso con su clase: los del correo y los del almacén hacen releer la
-    // lista; los del estado, sólo el estado.
-    let correo = futures_util::stream::select_all(flujos).map(|m| m.map(|_| Notice::Changed));
-    let estado = zbus::MessageStream::for_match_rule(store_status_rule()?, &conexion, None)
-        .await
-        .map_err(|e| format!("no se pudo escuchar el estado del almacén: {e}"))?
-        .map(|m| m.map(|_| Notice::Status));
-    let mut avisos = futures_util::stream::select(correo, estado);
+    let dueno = zbus::MessageStream::for_match_rule(
+        owner_rule().map_err(|e| format!("no se pudo armar el filtro del dueño: {e}"))?,
+        conexion,
+        None,
+    )
+    .await
+    .map_err(|e| format!("no se pudo escuchar al dueño del nombre: {e}"))?;
+    flujos.push(dueno.map(|m| m.map(|_| true)).boxed());
+    let mut avisos = futures_util::stream::select_all(flujos);
 
     while let Some(aviso) = avisos.next().await {
-        let Ok(first) = aviso else {
+        let Ok(owner_changed) = aviso else {
             continue;
         };
-        // Una vuelta escribe de a lotes y avisa por cada uno: se juntan los
-        // que llegan seguidos, y la ventana recibe un aviso de cada clase.
-        // Sin detalle: el evento dice «volvé a leer», y la ventana relee y ve
-        // el estado completo.
-        tokio::time::sleep(SETTLE).await;
-        let mut seen = vec![first];
+        // Se juntan los que llegan seguidos: la ventana relee una vez. Sin
+        // detalle: el evento dice «volvé a leer», y la ventana relee y ve el
+        // estado completo.
+        let mut changed = !owner_changed;
+        let mut gone = owner_changed;
+        if !gone {
+            tokio::time::sleep(SETTLE).await;
+        }
         while let Some(Some(next)) = futures_util::FutureExt::now_or_never(avisos.next()) {
-            if let Ok(kind) = next {
-                seen.push(kind);
+            match next {
+                Ok(true) => gone = true,
+                Ok(false) => changed = true,
+                Err(_) => {}
             }
         }
-        for event in events_for(&seen) {
-            let _ = app.emit(event, ());
+        if changed {
+            let _ = app.emit(EVENTO, ());
+        }
+        if gone {
+            // Otro tiene el nombre, o se fue: se vuelve a comprobar desde cero.
+            client.forget().await;
+            return Err("el nombre del sincronizador cambió de dueño".into());
         }
     }
 
@@ -1619,46 +1462,6 @@ mod tests {
         );
     }
 
-    /// `Changed` del almacén sale por cada área. La ventana tiene que despertar
-    /// con el del correo y con ningún otro: un lote de contactos no cambia la
-    /// lista, y recargarla por él es gastar batería.
-    #[test]
-    fn se_escucha_el_changed_del_correo_y_no_el_de_otras_areas() {
-        let regla = store_change_rule().unwrap();
-        let senal = |area: &str| {
-            zbus::message::Message::signal(STORE_PATH, STORE_INTERFACE, "Changed")
-                .unwrap()
-                .build(&(area, "cuenta", 3u64))
-                .unwrap()
-        };
-
-        assert!(regla.matches(&senal("email")).unwrap());
-        assert!(!regla.matches(&senal("contacts")).unwrap());
-        assert!(!regla.matches(&senal("calendar")).unwrap());
-
-        // Ni otra señal del almacén con el mismo primer argumento.
-        let otra = zbus::message::Message::signal(STORE_PATH, STORE_INTERFACE, "StatusChanged")
-            .unwrap()
-            .build(&("email",))
-            .unwrap();
-        assert!(!regla.matches(&otra).unwrap());
-    }
-
-    /// Cualquier proceso de la sesión puede emitir una señal con la interfaz
-    /// del almacén: la regla sólo acepta la del dueño del nombre del
-    /// sincronizador, y desde su objeto.
-    #[test]
-    fn solo_cuenta_el_changed_del_sincronizador_y_de_su_objeto() {
-        let regla = store_change_rule().unwrap();
-        assert_eq!(regla.sender().map(|s| s.as_str()), Some(SERVICIO));
-
-        let de_otro_objeto = zbus::message::Message::signal("/otro", STORE_INTERFACE, "Changed")
-            .unwrap()
-            .build(&("email", "cuenta", 3u64))
-            .unwrap();
-        assert!(!regla.matches(&de_otro_objeto).unwrap());
-    }
-
     fn stored(uid: u64, mailbox: &str) -> StoredMessage {
         serde_json::from_value(serde_json::json!({
             "uid": uid, "mailbox_name": mailbox, "from_addr": "ana@x.com",
@@ -1723,288 +1526,5 @@ mod tests {
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].store_id, Some(9));
         assert!(list[0].sin_leer);
-    }
-
-    /// El área de esta ventana en `GetStatus`, y otra que no tiene que mirar.
-    const AREA: &str = "email";
-    const OTHER_AREA: &str = "calendar";
-    /// Los eventos que escucha la ventana (`src/composables`, `src/views`).
-    const EXPECTED_CHANGED_EVENT: &str = "correo-cambio";
-    const EXPECTED_STATUS_EVENT: &str = "mail-sync-status";
-
-    // ── El estado de la sincronización ─────────────────────────────────────
-
-    /// La respuesta de `GetStatus` como la arma `visible_status` en
-    /// `vasak-accounts/sync/src/store_api.rs`: con permiso sobre el área van
-    /// `detail` y `last_synced_at`; sin permiso, sólo `state`.
-    fn status_json() -> String {
-        let mut con_permiso = serde_json::json!({
-            "account_id": "google",
-            "state": "ready",
-            "detail": "",
-            "size_bytes": 10,
-        });
-        con_permiso[AREA] = serde_json::json!({
-            "state": "synced",
-            "detail": "",
-            "last_synced_at": "2026-10-13T17:05:00Z",
-        });
-        con_permiso[OTHER_AREA] = serde_json::json!({ "state": "failed" });
-        let mut fallida = serde_json::json!({ "account_id": "nube", "state": "ready" });
-        fallida[AREA] = serde_json::json!({
-            "state": "failed",
-            "detail": "el servidor rechazó la clave",
-            "last_synced_at": null,
-        });
-        let mut de_otra_area = serde_json::json!({ "account_id": "otra", "state": "ready" });
-        de_otra_area[OTHER_AREA] = serde_json::json!({ "state": "syncing" });
-        let mut sin_permiso = serde_json::json!({ "account_id": "ajena", "state": "ready" });
-        sin_permiso[AREA] = serde_json::json!({ "state": "pending" });
-        serde_json::json!({
-            "keyring": "unlocked",
-            "accounts": [con_permiso, fallida, de_otra_area, sin_permiso],
-        })
-        .to_string()
-    }
-
-    fn estado(id: &str, state: &str, detail: &str, last: Option<&str>) -> AccountSyncStatus {
-        AccountSyncStatus {
-            account_id: id.into(),
-            state: state.into(),
-            detail: detail.into(),
-            last_synced_at: last.map(str::to_string),
-        }
-    }
-
-    #[test]
-    fn el_estado_de_cada_cuenta_sale_de_su_area() {
-        assert_eq!(
-            statuses_from(&status_json(), AREA).unwrap(),
-            vec![
-                estado("google", "synced", "", Some("2026-10-13T17:05:00Z")),
-                estado("nube", "failed", "el servidor rechazó la clave", None),
-                // Sin permiso sobre el área el almacén manda sólo el estado: se
-                // muestra igual, sin detalle ni hora.
-                estado("ajena", "pending", "", None),
-            ]
-        );
-    }
-
-    /// Una cuenta que no tiene esta área —sólo otra— no tiene nada que decir
-    /// acá: si apareciera, se le mostraría el estado de otra área.
-    #[test]
-    fn una_cuenta_sin_esta_area_no_aparece() {
-        let ids: Vec<_> = statuses_from(&status_json(), AREA)
-            .unwrap()
-            .into_iter()
-            .map(|s| s.account_id)
-            .collect();
-        assert!(!ids.contains(&"otra".to_string()), "{ids:?}");
-        // Y de la que tiene las dos, el estado es el de esta área.
-        let google = statuses_from(&status_json(), AREA).unwrap().remove(0);
-        assert_eq!(google.state, "synced");
-    }
-
-    #[test]
-    fn un_area_sin_estado_se_lee_apagada() {
-        let mut cuenta = serde_json::json!({ "account_id": "google" });
-        cuenta[AREA] = serde_json::json!({});
-        let json = serde_json::json!({ "accounts": [cuenta] }).to_string();
-        assert_eq!(
-            statuses_from(&json, AREA).unwrap(),
-            vec![estado("google", "off", "", None)]
-        );
-    }
-
-    #[test]
-    fn una_cuenta_sin_id_no_se_muestra() {
-        let mut cuenta = serde_json::json!({ "state": "ready" });
-        cuenta[AREA] = serde_json::json!({ "state": "synced" });
-        let json = serde_json::json!({ "accounts": [cuenta] }).to_string();
-        assert_eq!(statuses_from(&json, AREA).unwrap(), vec![]);
-    }
-
-    #[test]
-    fn una_respuesta_que_no_es_json_es_un_error() {
-        assert!(statuses_from("no es json", AREA).is_err());
-    }
-
-    /// Un almacén que todavía no tiene cuentas, o que contesta otra cosa en
-    /// `accounts`, es ningún estado: no es un error que haya que mostrar.
-    #[test]
-    fn una_respuesta_sin_cuentas_no_tiene_estados() {
-        assert_eq!(
-            statuses_from(r#"{"keyring":"locked"}"#, AREA).unwrap(),
-            vec![]
-        );
-        assert_eq!(statuses_from(r#"{"accounts":3}"#, AREA).unwrap(), vec![]);
-        assert_eq!(statuses_from("[]", AREA).unwrap(), vec![]);
-    }
-
-    /// Lo que viaja a la ventana tiene que tener **exactamente** los nombres
-    /// que lee `src/tools/sync-status.ts`: Tauri no los convierte.
-    #[test]
-    fn el_estado_y_los_rechazos_llegan_con_los_nombres_de_la_ventana() {
-        let json =
-            serde_json::to_value(estado("google", "synced", "", Some("2026-10-13T17:05:00Z")))
-                .unwrap();
-        let mut claves: Vec<_> = json.as_object().unwrap().keys().cloned().collect();
-        claves.sort();
-        assert_eq!(claves, ["account_id", "detail", "last_synced_at", "state"]);
-        // Sin hora, `null`: el tipo de la ventana es `string | null`.
-        let sin_hora = serde_json::to_value(estado("google", "pending", "", None)).unwrap();
-        assert!(sin_hora["last_synced_at"].is_null());
-
-        let rechazo = serde_json::to_value(SyncRequestFailure {
-            account_id: "google".into(),
-            reason: "denied",
-        })
-        .unwrap();
-        assert_eq!(
-            rechazo,
-            serde_json::json!({ "account_id": "google", "reason": "denied" })
-        );
-    }
-
-    // ── Lo que «Actualizar» no pudo pedir ──────────────────────────────────
-
-    #[test]
-    fn cada_rechazo_del_almacen_tiene_su_motivo() {
-        for (nombre, motivo) in [
-            ("org.freedesktop.DBus.Error.AccessDenied", "denied"),
-            ("org.freedesktop.DBus.Error.LimitsExceeded", "too_soon"),
-            ("org.freedesktop.DBus.Error.ServiceUnknown", "unavailable"),
-            ("org.freedesktop.DBus.Error.NameHasNoOwner", "unavailable"),
-            ("org.freedesktop.DBus.Error.UnknownObject", "unavailable"),
-            ("org.freedesktop.DBus.Error.UnknownMethod", "unavailable"),
-            ("org.freedesktop.DBus.Error.Failed", "failed"),
-            ("ar.net.vasak.os.Error.Otro", "failed"),
-        ] {
-            assert_eq!(failure_reason(Some(nombre)), motivo, "{nombre}");
-        }
-        // Un error que no es de D-Bus —se cortó la conexión— también falló.
-        assert_eq!(failure_reason(None), "failed");
-    }
-
-    /// Una respuesta de error de verdad, como la que llega por el bus. Así es
-    /// como `call_method` devuelve el `LimitsExceeded` del almacén: un
-    /// `MethodError`, no un `FDO`.
-    fn error_reply(nombre: &str) -> zbus::Error {
-        let pedido = zbus::Message::method_call(STORE_PATH, "RequestSync")
-            .unwrap()
-            .build(&("google",))
-            .unwrap();
-        let respuesta = zbus::Message::error(&pedido.header(), nombre)
-            .unwrap()
-            .build(&("una por cuenta cada minuto",))
-            .unwrap();
-        zbus::Error::from(respuesta)
-    }
-
-    #[test]
-    fn el_motivo_sale_del_nombre_de_la_respuesta_de_error() {
-        let limite = error_reply("org.freedesktop.DBus.Error.LimitsExceeded");
-        assert!(matches!(limite, zbus::Error::MethodError(..)), "{limite:?}");
-        assert_eq!(failure_reason(error_name(&limite).as_deref()), "too_soon");
-
-        let sin_permiso = error_reply("org.freedesktop.DBus.Error.AccessDenied");
-        assert_eq!(
-            failure_reason(error_name(&sin_permiso).as_deref()),
-            "denied"
-        );
-
-        // El mismo error ya convertido a `fdo::Error` da el mismo motivo.
-        let fdo = zbus::Error::from(zbus::fdo::Error::AccessDenied("no".into()));
-        assert!(matches!(fdo, zbus::Error::FDO(_)), "{fdo:?}");
-        assert_eq!(failure_reason(error_name(&fdo).as_deref()), "denied");
-
-        assert_eq!(error_name(&zbus::Error::InvalidReply), None);
-    }
-
-    /// Sin bus de sesión no se le pudo pedir nada a nadie: cada cuenta pedida
-    /// vuelve como sin servicio, y la ventana lo dice al lado de cada una.
-    #[test]
-    fn sin_bus_cada_cuenta_pedida_queda_sin_servicio() {
-        const VARIABLE: &str = "DBUS_SESSION_BUS_ADDRESS";
-        let antes = std::env::var_os(VARIABLE);
-        std::env::set_var(VARIABLE, "unix:path=/nonexistent/vasak-qa/bus");
-        let ids = vec!["google".to_string(), "nube".to_string()];
-        let fallos = tauri::async_runtime::block_on(request_sync(&ids));
-        match antes {
-            Some(valor) => std::env::set_var(VARIABLE, valor),
-            None => std::env::remove_var(VARIABLE),
-        }
-        assert_eq!(
-            fallos,
-            vec![
-                SyncRequestFailure {
-                    account_id: "google".into(),
-                    reason: "unavailable",
-                },
-                SyncRequestFailure {
-                    account_id: "nube".into(),
-                    reason: "unavailable",
-                },
-            ]
-        );
-    }
-
-    // ── El aviso del estado ────────────────────────────────────────────────
-
-    /// `StatusChanged` también sólo del sincronizador y de su objeto: si no,
-    /// cualquier proceso de la sesión haría releer el estado a voluntad.
-    #[test]
-    fn solo_cuenta_el_status_changed_del_sincronizador_y_de_su_objeto() {
-        let regla = store_status_rule().unwrap().to_string();
-        for parte in [
-            "type='signal'",
-            "sender='ar.net.vasak.os.AccountsSync'",
-            "path='/ar/net/vasak/os/AccountsStore'",
-            "interface='ar.net.vasak.os.AccountsStore'",
-            "member='StatusChanged'",
-        ] {
-            assert!(regla.contains(parte), "falta {parte} en {regla}");
-        }
-    }
-
-    /// Una vuelta escribe de a lotes y avisa por cada uno: la ventana recibe
-    /// un solo aviso por ráfaga, no uno por lote.
-    #[test]
-    fn una_rafaga_de_cambios_avisa_una_sola_vez() {
-        assert_eq!(
-            events_for(&[Notice::Changed, Notice::Changed, Notice::Changed]),
-            [EVENTO]
-        );
-    }
-
-    /// Un cambio de estado solo no relee lo guardado, y un cambio de lo
-    /// guardado solo no relee el estado.
-    #[test]
-    fn cada_clase_de_aviso_despierta_solo_lo_suyo() {
-        assert_eq!(
-            events_for(&[Notice::Status, Notice::Status]),
-            [STATUS_EVENT]
-        );
-        assert_eq!(events_for(&[Notice::Changed]), [EVENTO]);
-    }
-
-    #[test]
-    fn una_rafaga_mixta_avisa_una_vez_de_cada_clase() {
-        assert_eq!(
-            events_for(&[
-                Notice::Status,
-                Notice::Changed,
-                Notice::Status,
-                Notice::Changed
-            ]),
-            [EVENTO, STATUS_EVENT]
-        );
-        assert!(events_for(&[]).is_empty());
-    }
-
-    #[test]
-    fn los_avisos_a_la_ventana_tienen_los_nombres_que_escucha() {
-        assert_eq!(EVENTO, EXPECTED_CHANGED_EVENT);
-        assert_eq!(STATUS_EVENT, EXPECTED_STATUS_EVENT);
     }
 }
