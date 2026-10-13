@@ -50,7 +50,13 @@ jobs:
       #   lld                    `src-tauri/.cargo/config.toml` enlaza con
       #                          `-fuse-ld=lld`, y la imagen del runner no lo trae
       #   build-essential        el compilador de C de los `-sys`
+      #   dbus                   trae `dbus-daemon`, que las pruebas de bus real
+      #                          de `correo.rs` levantan para comprobar que la
+      #                          lectura falla cerrada contra un impostor del
+      #                          almacén. Sin el paquete esas pruebas se omiten y
+      #                          no cuentan cobertura (vasak-accounts#77).
       paquetes_rust: >-
         libwebkit2gtk-4.1-dev
         lld
         build-essential
+        dbus
