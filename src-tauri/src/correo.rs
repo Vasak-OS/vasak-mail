@@ -1527,4 +1527,219 @@ mod tests {
         assert_eq!(list[0].store_id, Some(9));
         assert!(list[0].sin_leer);
     }
+    // ── Los errores del plugin ─────────────────────────────────────────────
+
+    #[test]
+    fn el_error_del_almacen_lleva_el_metodo_y_el_nombre_de_dbus() {
+        let error = StoreError::Store {
+            name: Some("org.freedesktop.DBus.Error.AccessDenied".into()),
+            message: "sin permiso".into(),
+        };
+        assert_eq!(
+            describe("SendMessage", &error),
+            "SendMessage: org.freedesktop.DBus.Error.AccessDenied: sin permiso"
+        );
+    }
+
+    #[test]
+    fn un_error_sin_nombre_de_dbus_lleva_el_metodo_y_el_texto_del_plugin() {
+        let sin_nombre = StoreError::Store {
+            name: None,
+            message: "se cortó".into(),
+        };
+        assert_eq!(describe("MarkRead", &sin_nombre), "MarkRead: se cortó");
+        assert_eq!(
+            describe("ListOutbox", &StoreError::Impostor),
+            format!("ListOutbox: {}", StoreError::Impostor)
+        );
+        assert_eq!(
+            describe("GetMessage", &StoreError::NotRunning),
+            format!("GetMessage: {}", StoreError::NotRunning)
+        );
+    }
+
+    // ── Antes de que arranque el plugin ────────────────────────────────────
+
+    /// Sin el cliente del plugin —antes de `use_store`— las llamadas fallan
+    /// con un error que se entiende, sin entrar en pánico y sin ir al bus por
+    /// otro lado. Ninguna prueba de este archivo llama a `use_store`: el
+    /// cliente es uno por proceso y no se puede volver atrás.
+    #[tokio::test]
+    async fn sin_el_cliente_del_plugin_las_llamadas_fallan_limpio() {
+        assert_eq!(
+            store().err().as_deref(),
+            Some("el cliente del almacén todavía no está listo")
+        );
+        assert_eq!(
+            salientes().await.unwrap_err(),
+            "el cliente del almacén todavía no está listo"
+        );
+        let descartado = descartar("1").await.unwrap_err();
+        assert!(
+            descartado.ends_with("el cliente del almacén todavía no está listo"),
+            "{descartado}"
+        );
+    }
+
+    // ── Qué señales se escuchan ────────────────────────────────────────────
+
+    #[test]
+    fn el_cambio_de_dueno_se_escucha_solo_del_bus_y_del_nombre_del_sincronizador() {
+        let regla = owner_rule().unwrap();
+        assert_eq!(regla.msg_type(), Some(zbus::message::Type::Signal));
+        assert_eq!(
+            regla.sender().map(|s| s.as_str()),
+            Some("org.freedesktop.DBus")
+        );
+        assert_eq!(
+            regla.interface().map(|i| i.as_str()),
+            Some("org.freedesktop.DBus")
+        );
+        assert_eq!(regla.member().map(|m| m.as_str()), Some("NameOwnerChanged"));
+        let args: Vec<_> = regla
+            .args()
+            .iter()
+            .map(|(i, a)| (*i, a.as_str().to_string()))
+            .collect();
+        assert_eq!(args, [(0, SERVICIO.to_string())]);
+    }
+
+    use crate::test_bus::{self, PrivateBus};
+    use futures_util::StreamExt;
+
+    /// Cuánto se espera, como mucho, algo que tiene que pasar. Si se cumple,
+    /// la prueba falla: no es una pausa.
+    const DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
+
+    /// El sincronizador de mentira: sólo toma el nombre y publica el objeto
+    /// en vivo.
+    struct Live;
+
+    #[zbus::interface(name = "ar.net.vasak.os.AccountsSync")]
+    impl Live {
+        fn ping(&self) {}
+    }
+
+    /// Que el bus ya repartió todo lo que mandó `connection`: el bus atiende
+    /// los mensajes de una conexión en orden, así que cuando contesta esto ya
+    /// entregó lo anterior.
+    async fn flushed(connection: &zbus::Connection) {
+        zbus::fdo::DBusProxy::new(connection)
+            .await
+            .unwrap()
+            .get_id()
+            .await
+            .unwrap();
+    }
+
+    async fn signal(connection: &zbus::Connection, path: &str, member: &str) {
+        connection
+            .emit_signal(None::<()>, path, INTERFAZ, member, &())
+            .await
+            .unwrap();
+        flushed(connection).await;
+    }
+
+    #[tokio::test]
+    async fn la_regla_en_vivo_es_del_dueno_comprobado_su_objeto_y_su_senal() {
+        let _turno = test_bus::exclusive();
+        let bus = PrivateBus::start();
+        let dueno = bus.serve(RUTA, Live).await;
+        let verified = test_bus::client(true)
+            .verify_on(bus.connect().await)
+            .await
+            .unwrap();
+        assert_eq!(
+            verified.owner.as_str(),
+            dueno.unique_name().unwrap().as_str()
+        );
+
+        let regla = live_rule(&verified, "OutboxChanged").unwrap();
+
+        assert_eq!(regla.msg_type(), Some(zbus::message::Type::Signal));
+        assert_eq!(
+            regla.sender().map(|s| s.as_str()),
+            Some(verified.owner.as_str())
+        );
+        assert!(
+            matches!(
+                regla.path_spec(),
+                Some(zbus::match_rule::PathSpec::Path(path)) if path.as_str() == RUTA
+            ),
+            "{:?}",
+            regla.path_spec()
+        );
+        assert_eq!(regla.interface().map(|i| i.as_str()), Some(INTERFAZ));
+        assert_eq!(regla.member().map(|m| m.as_str()), Some("OutboxChanged"));
+    }
+
+    /// Cualquier programa de la sesión puede emitir una señal con la interfaz
+    /// del sincronizador. Sólo la del dueño comprobado, en su objeto y con la
+    /// señal pedida, despierta a la ventana.
+    #[tokio::test]
+    async fn solo_despierta_la_senal_del_dueno_comprobado() {
+        let _turno = test_bus::exclusive();
+        let bus = PrivateBus::start();
+        let dueno = bus.serve(RUTA, Live).await;
+        let oyente = bus.connect().await;
+        let verified = test_bus::client(true)
+            .verify_on(oyente.clone())
+            .await
+            .unwrap();
+        let mut avisos = zbus::MessageStream::for_match_rule(
+            live_rule(&verified, "MessagesChanged").unwrap(),
+            &oyente,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let impostor = bus.connect().await;
+        signal(&impostor, RUTA, "MessagesChanged").await;
+        signal(&dueno, "/ar/net/vasak/os/Otro", "MessagesChanged").await;
+        signal(&dueno, RUTA, "MailboxChanged").await;
+        signal(&dueno, RUTA, "MessagesChanged").await;
+
+        let aviso = tokio::time::timeout(DEADLINE, avisos.next())
+            .await
+            .expect("la señal del dueño no llegó")
+            .unwrap()
+            .unwrap();
+        let header = aviso.header();
+        assert_eq!(
+            header.sender().map(|s| s.as_str()),
+            Some(verified.owner.as_str())
+        );
+        assert_eq!(header.path().map(|p| p.as_str()), Some(RUTA));
+        assert_eq!(header.member().map(|m| m.as_str()), Some("MessagesChanged"));
+    }
+
+    /// Cuando el sincronizador suelta el nombre llega el aviso del bus, y el
+    /// de otro nombre que cambia de dueño no.
+    #[tokio::test]
+    async fn el_aviso_de_cambio_de_dueno_es_solo_el_del_sincronizador() {
+        let _turno = test_bus::exclusive();
+        let bus = PrivateBus::start();
+        let dueno = bus.serve(RUTA, Live).await;
+        let oyente = bus.connect().await;
+        let mut avisos = zbus::MessageStream::for_match_rule(owner_rule().unwrap(), &oyente, None)
+            .await
+            .unwrap();
+
+        let otro = bus.connect().await;
+        otro.request_name("ar.net.vasak.os.Otro").await.unwrap();
+        flushed(&otro).await;
+        dueno.release_name(SERVICIO).await.unwrap();
+
+        let aviso = tokio::time::timeout(DEADLINE, avisos.next())
+            .await
+            .expect("el aviso del cambio de dueño no llegó")
+            .unwrap()
+            .unwrap();
+        let (nombre, antes, despues): (String, String, String) =
+            aviso.body().deserialize().unwrap();
+        assert_eq!(nombre, SERVICIO);
+        assert_eq!(antes, dueno.unique_name().unwrap().as_str());
+        assert_eq!(despues, "");
+    }
 }

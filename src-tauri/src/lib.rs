@@ -8,6 +8,8 @@ mod correo;
 mod locales;
 mod mailto;
 mod preferencias;
+#[cfg(test)]
+mod test_bus;
 mod ventana;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
