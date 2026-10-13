@@ -441,6 +441,10 @@ onMounted(async () => {
 	// primer mensaje que se abra y desde la primera tecla que se apriete.
 	// Leerlas después dejaría la primera interacción con los valores de siempre.
 	await cargarPreferencias();
+	// Si la ventana se cerró mientras se leían, `onUnmounted` ya corrió: un
+	// oyente registrado ahora no lo sacaría nadie, y los atajos seguirían
+	// andando sobre una vista que ya no existe.
+	if (desmontada) return;
 
 	// En la ventana entera y no en un elemento: los atajos tienen que andar sin
 	// que haya que hacer clic en la lista primero, que es lo que pasaría si el

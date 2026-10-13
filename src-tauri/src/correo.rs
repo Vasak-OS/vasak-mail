@@ -143,8 +143,6 @@ pub struct Abierto {
     pub nombre: String,
 }
 
-/// El almacén del sistema: lo que el sincronizador ya trajo y guardó cifrado.
-/// Mismo nombre de bus, otro objeto. Ver `store_api.rs` de `vasak-accounts`.
 /// Cuántos mensajes se piden del almacén por casilla: los mismos que mostraba
 /// la lista en vivo.
 const STORE_PAGE: u32 = 200;
@@ -797,6 +795,7 @@ pub fn escuchar(app: tauri::AppHandle) {
         // ventana se quedaba sin avisos hasta que alguien cerrara y volviera a
         // abrir la aplicación. El síntoma sería correo que deja de aparecer solo
         // y nada que lo explique.
+        let owner_changed = &OWNER_CHANGED;
         loop {
             if let Err(e) = seguir(&app).await {
                 // Que no se pueda escuchar no rompe nada: el botón de actualizar
@@ -810,19 +809,31 @@ pub fn escuchar(app: tauri::AppHandle) {
             }
             // Con espera, o un bus que no está recibe un intento por milisegundo
             // y la ventana gasta más batería reconectando que mostrando correo.
-            tokio::time::sleep(ESPERA_ENTRE_INTENTOS).await;
+            // Salvo cuando el nombre cambió de dueño: ahí el bus está, y cada
+            // segundo sin escuchar es correo nuevo que la ventana no ve.
+            tokio::time::sleep(ESPERA_TRAS_CAMBIO_DE_DUENO).await;
+            if !owner_changed.swap(false, std::sync::atomic::Ordering::Relaxed) {
+                tokio::time::sleep(ESPERA_ENTRE_INTENTOS - ESPERA_TRAS_CAMBIO_DE_DUENO).await;
+            }
         }
     });
 }
+
+/// Cuánto se juntan los avisos seguidos antes de pasarlos a la ventana.
+const SETTLE: std::time::Duration = std::time::Duration::from_millis(500);
 
 /// Cuánto se espera antes de volver a engancharse a los avisos.
 ///
 /// Quince segundos: corto para que reconectar no se note, y largo para no
 /// martillar un bus que no está.
-/// Cuánto se juntan los avisos seguidos antes de pasarlos a la ventana.
-const SETTLE: std::time::Duration = std::time::Duration::from_millis(500);
-
 const ESPERA_ENTRE_INTENTOS: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// Cuánto se espera si la escucha terminó porque el nombre cambió de dueño:
+/// lo justo para que el dueño nuevo termine de arrancar.
+const ESPERA_TRAS_CAMBIO_DE_DUENO: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Si la última escucha terminó por un cambio de dueño del nombre.
+static OWNER_CHANGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Las señales del correo en vivo, sólo del dueño comprobado del nombre del
 /// sincronizador y de su objeto: cualquier proceso de la sesión puede emitir
@@ -905,6 +916,7 @@ async fn seguir(app: &tauri::AppHandle) -> Result<(), String> {
         if gone {
             // Otro tiene el nombre, o se fue: se vuelve a comprobar desde cero.
             client.forget().await;
+            OWNER_CHANGED.store(true, std::sync::atomic::Ordering::Relaxed);
             return Err("el nombre del sincronizador cambió de dueño".into());
         }
     }
