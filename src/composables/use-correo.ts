@@ -384,7 +384,12 @@ export function useCorreo() {
 				);
 				lista = combinados(listas);
 			} else {
-				lista = await traerDe(elegida.value, casilla.value);
+				// Por el mismo comparador que la combinada: lo más nuevo arriba.
+				// El almacén ya devuelve ordenado (`ORDER BY sort_key DESC`), pero
+				// el camino en vivo da el orden crudo de IMAP —por UID ascendente,
+				// o sea lo más viejo primero—, así que ordenar acá lo deja parejo
+				// venga de donde venga, igual que la bandeja unificada.
+				lista = combinados([await traerDe(elegida.value, casilla.value)]);
 			}
 
 			if (mio !== listaVigente) {
