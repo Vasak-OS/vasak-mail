@@ -22,6 +22,10 @@
 
 use serde::{Deserialize, Serialize};
 
+use vasak_accounts_store_client::{
+    trusted_owner, DbusOwnerResolver, OwnerResolver, ServiceIdentity,
+};
+
 const SERVICIO: &str = "ar.net.vasak.os.AccountsSync";
 const RUTA: &str = "/ar/net/vasak/os/AccountsSync";
 const INTERFAZ: &str = "ar.net.vasak.os.AccountsSync";
@@ -161,13 +165,56 @@ async fn conectar() -> Result<zbus::Connection, String> {
     })
 }
 
+/// Comprueba, con un resolvedor del dueño del nombre, que quien tiene
+/// [`SERVICIO`] sea de verdad el servicio instalado —y no un proceso de la
+/// sesión que tomó el nombre mientras el servicio no estaba— y devuelve su
+/// **nombre único** ya verificado. Es el mismo nombre que verifica el crate:
+/// `SERVICIO` y `vasak_accounts_store_client::SERVICE_NAME` tienen que ser el
+/// mismo (hay un test que lo ata).
+///
+/// Las llamadas se dirigen a ese nombre único, no al nombre bien conocido: si el
+/// nombre cambia de dueño después de la comprobación, siguen yendo a la conexión
+/// verificada y no a la de un impostor. Falla **cerrado** —cualquier cosa que
+/// impida comprobar es un error— y el que llama cae al camino de «el servicio no
+/// está» de siempre. Ver `vasak-accounts#77`.
+///
+/// En producción el resolvedor es el del bus (ver [`connect_verified`]); las
+/// pruebas le pasan uno propio con un impostor de verdad.
+async fn trust_owner<R>(resolver: &R, identity: &ServiceIdentity) -> Result<String, String>
+where
+    R: OwnerResolver + ?Sized,
+{
+    trusted_owner(resolver, SERVICIO, identity)
+        .await
+        .map_err(|e| format!("no se pudo confiar en el servicio de correo: {e}"))
+}
+
+/// Conecta al bus y comprueba, **una vez por conexión**, al dueño del nombre del
+/// sincronizador antes de confiar en lo que conteste (ver [`trust_owner`]).
+/// Devuelve la conexión y el nombre único verificado, al que van dirigidas todas
+/// las llamadas.
+async fn connect_verified() -> Result<(zbus::Connection, String), String> {
+    let conexion = conectar().await?;
+    let resolver = DbusOwnerResolver::new(&conexion)
+        .await
+        .map_err(|e| format!("no se pudo confiar en el servicio de correo: {e}"))?;
+    let dueno = trust_owner(&resolver, &ServiceIdentity::installed()).await?;
+    Ok((conexion, dueno))
+}
+
 async fn llamar<A>(metodo: &str, argumentos: &A) -> Result<String, String>
 where
     A: serde::ser::Serialize + zbus::zvariant::DynamicType,
 {
-    conectar()
-        .await?
-        .call_method(Some(SERVICIO), RUTA, Some(INTERFAZ), metodo, argumentos)
+    let (conexion, dueno) = connect_verified().await?;
+    conexion
+        .call_method(
+            Some(dueno.as_str()),
+            RUTA,
+            Some(INTERFAZ),
+            metodo,
+            argumentos,
+        )
         .await
         .map_err(|e| format!("{metodo}: {e}"))?
         .body()
@@ -184,10 +231,10 @@ async fn call_store<A>(metodo: &str, argumentos: &A) -> Result<String, String>
 where
     A: serde::ser::Serialize + zbus::zvariant::DynamicType,
 {
-    conectar()
-        .await?
+    let (conexion, dueno) = connect_verified().await?;
+    conexion
         .call_method(
-            Some(SERVICIO),
+            Some(dueno.as_str()),
             STORE_PATH,
             Some(STORE_INTERFACE),
             metodo,
@@ -454,8 +501,8 @@ fn error_name(error: &zbus::Error) -> Option<String> {
 /// cuentas a las que no se les pudo pedir, y por qué; un fallo de una no
 /// frena a las demás.
 pub async fn request_sync(account_ids: &[String]) -> Vec<SyncRequestFailure> {
-    let conexion = match conectar().await {
-        Ok(conexion) => conexion,
+    let (conexion, dueno) = match connect_verified().await {
+        Ok(verificada) => verificada,
         Err(e) => {
             eprintln!("[correo] no se pudo pedir una vuelta: {e}");
             return account_ids
@@ -471,7 +518,7 @@ pub async fn request_sync(account_ids: &[String]) -> Vec<SyncRequestFailure> {
     for id in account_ids {
         if let Err(e) = conexion
             .call_method(
-                Some(SERVICIO),
+                Some(dueno.as_str()),
                 STORE_PATH,
                 Some(STORE_INTERFACE),
                 "RequestSync",
@@ -644,10 +691,10 @@ pub async fn open_message(
 /// pasar por encima de un mensaje con las flechas te vacíe el contador de sin
 /// leer es de los errores más molestos que puede tener un cliente de correo.
 pub async fn marcar_leido(account_id: &str, casilla: &str, uid: u32) -> Result<(), String> {
-    conectar()
-        .await?
+    let (conexion, dueno) = connect_verified().await?;
+    conexion
         .call_method(
-            Some(SERVICIO),
+            Some(dueno.as_str()),
             RUTA,
             Some(INTERFAZ),
             "MarkRead",
@@ -882,10 +929,10 @@ pub async fn salientes() -> Result<Vec<Saliente>, String> {
 
 /// Saca un mensaje de la cola sin mandarlo. **Se pierde lo escrito.**
 pub async fn descartar(id: &str) -> Result<(), String> {
-    conectar()
-        .await?
+    let (conexion, dueno) = connect_verified().await?;
+    conexion
         .call_method(
-            Some(SERVICIO),
+            Some(dueno.as_str()),
             RUTA,
             Some(INTERFAZ),
             "DiscardOutgoing",
@@ -2006,5 +2053,135 @@ mod tests {
     fn los_avisos_a_la_ventana_tienen_los_nombres_que_escucha() {
         assert_eq!(EVENTO, EXPECTED_CHANGED_EVENT);
         assert_eq!(STATUS_EVENT, EXPECTED_STATUS_EVENT);
+    }
+
+    // ── Confiar sólo en el servicio de verdad (vasak-accounts#77) ───────────
+    //
+    // El bus de sesión deja que **cualquier** proceso tome un nombre que nadie
+    // tiene. Si el sincronizador se cayó o está en su ventana de reinicio, otro
+    // proceso de la sesión puede tomar `ar.net.vasak.os.AccountsSync` y servirle
+    // a esta ventana correo inventado bajo la cuenta real de la persona. Antes de
+    // confiar, `trust_owner` comprueba que el dueño del nombre esté ejecutando el
+    // binario del servicio instalado y dirige las llamadas a su nombre único.
+    //
+    // El sabotaje es real —un proceso de verdad hace de impostor, con su propio
+    // `/proc/<pid>/exe`, que es justo lo que mira el verificador—, no una prueba
+    // en negativo. Es el mismo patrón que
+    // `vasak-accounts/store-client/tests/verification.rs`.
+
+    use std::process::{Child, Command};
+    use vasak_accounts_store_client::{BoxFuture, SERVICE_NAME};
+
+    /// Un proceso de verdad que hace de impostor: existe, tiene su `exe`, y no es
+    /// el servicio. Se mata solo al salir del alcance.
+    struct Impostor(Child);
+
+    impl Impostor {
+        fn start() -> Self {
+            Impostor(
+                Command::new("sleep")
+                    .arg("120")
+                    .spawn()
+                    .expect("no se pudo arrancar el proceso impostor"),
+            )
+        }
+
+        fn pid(&self) -> u32 {
+            self.0.id()
+        }
+    }
+
+    impl Drop for Impostor {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    /// Un resolvedor que contesta lo que se le diga, sin bus. El pid que devuelve
+    /// es el de un proceso de verdad, así que `/proc/<pid>/exe` se lee de verdad.
+    struct FakeResolver {
+        owner: Option<String>,
+        pid: u32,
+    }
+
+    impl OwnerResolver for FakeResolver {
+        fn name_owner<'a>(
+            &'a self,
+            _name: &'a str,
+        ) -> BoxFuture<'a, Result<Option<String>, String>> {
+            let owner = self.owner.clone();
+            Box::pin(async move { Ok(owner) })
+        }
+
+        fn process_id<'a>(&'a self, _unique_name: &'a str) -> BoxFuture<'a, Result<u32, String>> {
+            let pid = self.pid;
+            Box::pin(async move { Ok(pid) })
+        }
+    }
+
+    /// El nombre que esta ventana le habla al servicio tiene que ser el mismo que
+    /// el crate verifica. Si se separaran, la app comprobaría un nombre y le
+    /// hablaría a otro, y la comprobación no diría nada del que de verdad usa.
+    #[test]
+    fn el_correo_verifica_el_nombre_que_le_habla_al_servicio() {
+        assert_eq!(SERVICIO, SERVICE_NAME);
+    }
+
+    /// Un impostor que tomó el nombre no es de confianza: `trust_owner` falla
+    /// **cerrado** y el que llama cae al camino de «el servicio no está», así que
+    /// la ventana no muestra el correo inventado.
+    #[test]
+    fn un_impostor_que_toma_el_nombre_del_sincronizador_no_es_de_confianza() {
+        let impostor = Impostor::start();
+        let resolver = FakeResolver {
+            owner: Some(":1.42".to_owned()),
+            pid: impostor.pid(),
+        };
+
+        let resultado =
+            tauri::async_runtime::block_on(trust_owner(&resolver, &ServiceIdentity::installed()));
+
+        let error = resultado.expect_err("un impostor tenía que ser rechazado");
+        assert!(error.contains("no se pudo confiar"), "{error}");
+    }
+
+    /// El dueño cuyo `exe` es el del servicio sí es de confianza, y lo que se
+    /// devuelve es su **nombre único** —no el nombre bien conocido—: es a él al
+    /// que se dirigen las llamadas, así un cambio de dueño posterior no las
+    /// redirige a un impostor.
+    ///
+    /// El «servicio» es este mismo proceso de prueba: su pid está vivo y su
+    /// `/proc/self/exe` se lee de verdad, sin la carrera de reciclado de pid que
+    /// tendría un hijo de vida corta. La identidad apunta a ese `exe`, que es lo
+    /// que pasaría si este proceso fuera el servicio instalado.
+    #[test]
+    fn el_servicio_de_verdad_es_de_confianza_y_se_dirige_a_su_nombre_unico() {
+        let resolver = FakeResolver {
+            owner: Some(":1.7".to_owned()),
+            pid: std::process::id(),
+        };
+        let identity = ServiceIdentity {
+            executable: std::fs::read_link("/proc/self/exe")
+                .expect("el proceso de prueba tiene que tener un exe"),
+        };
+
+        let dueno = tauri::async_runtime::block_on(trust_owner(&resolver, &identity))
+            .expect("el dueño cuyo exe coincide tiene que ser de confianza");
+        assert_eq!(dueno, ":1.7");
+        assert_ne!(dueno, SERVICIO);
+    }
+
+    /// Sin dueño del nombre —el servicio no está— tampoco se confía: falla
+    /// cerrado igual que con un impostor.
+    #[test]
+    fn sin_dueno_del_nombre_no_se_confia() {
+        let resolver = FakeResolver {
+            owner: None,
+            pid: 0,
+        };
+        let resultado =
+            tauri::async_runtime::block_on(trust_owner(&resolver, &ServiceIdentity::installed()));
+        assert!(resultado.is_err());
     }
 }
