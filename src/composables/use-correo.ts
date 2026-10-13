@@ -230,14 +230,6 @@ export function useCorreo() {
 		}
 	}
 
-	/**
-	 * El botón «Actualizar».
-	 *
-	 * Lo que se ve sale del almacén del sistema, que el sincronizador mantiene
-	 * al día solo; esto le pide que traiga ya lo nuevo de las cuentas a la
-	 * vista, y relee lo que hay mientras tanto. Lo que llegue después se avisa
-	 * con `correo-cambio`, como cualquier novedad.
-	 */
 	/** El estado de la sincronización de cada cuenta, del almacén. */
 	const syncStatuses = ref<AccountSyncStatus[]>([]);
 	/** Las cuentas a las que el último «Actualizar» no les pudo pedir una vuelta. */
@@ -265,6 +257,14 @@ export function useCorreo() {
 		await loadSyncStatus();
 	}
 
+	/**
+	 * El botón «Actualizar».
+	 *
+	 * Lo que se ve sale del almacén del sistema, que el sincronizador mantiene
+	 * al día solo; esto le pide que traiga ya lo nuevo de las cuentas a la
+	 * vista, y relee lo que hay mientras tanto. Lo que llegue después se avisa
+	 * con `correo-cambio`, como cualquier novedad.
+	 */
 	async function refresh() {
 		const ids = combinada.value
 			? cuentas.value.map((c) => c.account_id)
