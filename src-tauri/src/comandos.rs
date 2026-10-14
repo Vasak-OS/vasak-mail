@@ -8,6 +8,7 @@ use crate::correo::{
     self, Abierto, AdjuntoParaMandar, Borrador, Casilla, Cuenta, Resumen, Saliente,
 };
 use crate::mailto::{MailtoDraft, PendingMailto};
+use crate::store_access;
 
 /// Las cuentas con correo, y cuánto tienen sin leer.
 #[tauri::command]
@@ -137,4 +138,35 @@ pub fn take_pending_mailto(app: tauri::AppHandle) -> Option<MailtoDraft> {
     let mut guardado = estado.0.lock().ok()?;
 
     guardado.take()
+}
+
+/// Vuelve a pedir el permiso para leer el correo del almacén.
+///
+/// Llama a `RequestAgain` de `vasak-permissions` en el **bus de sistema**: ese
+/// método olvida **sólo** la decisión de esta ventana sobre `store.email` —nunca
+/// concede—, así que el próximo intento de leer vuelve a abrir el diálogo. Quién
+/// llama lo decide el servicio por la conexión, no un parámetro: esta ventana
+/// sólo puede re-pedirse el permiso **a sí misma**, y hay un techo contra la
+/// fatiga de permisos. Capa fina sobre `store_access`, donde vive —y se prueba—
+/// la lógica de cada desenlace.
+#[tauri::command]
+pub async fn request_mail_access_again() -> store_access::ReaskOutcome {
+    use store_access::{ReaskOutcome, EMAIL_RESOURCE, SERVICE_NAME};
+
+    let connection = match zbus::Connection::system().await {
+        Ok(connection) => connection,
+        Err(error) => {
+            eprintln!(
+                "[correo] no se pudo abrir el bus de sistema para re-pedir el permiso: {error}"
+            );
+            return ReaskOutcome::Failed {
+                detail: error.to_string(),
+            };
+        }
+    };
+    let outcome = store_access::request_again(&connection, SERVICE_NAME, EMAIL_RESOURCE).await;
+    if let ReaskOutcome::Failed { detail } = &outcome {
+        eprintln!("[correo] no se pudo volver a pedir el permiso: {detail}");
+    }
+    outcome
 }

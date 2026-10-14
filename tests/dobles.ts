@@ -83,6 +83,15 @@ export function fallar(comando: string, error: unknown) {
 	fallos.set(comando, error);
 }
 
+/**
+ * Deja de hacer fallar un comando, para probar qué pasa cuando lo que fallaba
+ * vuelve a andar —por ejemplo, releer el correo después de volver a dar el
+ * permiso— sin tirar el resto de los dobles con `olvidarTodo`.
+ */
+export function olvidarFallo(comando: string) {
+	fallos.delete(comando);
+}
+
 export async function invoke(comando: string, args?: unknown) {
 	invocaciones.push({ comando, args });
 	if (fallos.has(comando)) {

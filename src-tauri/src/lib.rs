@@ -8,6 +8,7 @@ mod correo;
 mod locales;
 mod mailto;
 mod preferencias;
+mod store_access;
 #[cfg(test)]
 mod test_bus;
 mod ventana;
@@ -78,6 +79,7 @@ pub fn run() {
             comandos::listar_salientes,
             comandos::descartar_saliente,
             comandos::take_pending_mailto,
+            comandos::request_mail_access_again,
         ])
         // El sincronizador avisa cuando llega correo; esto lo traduce a un
         // evento que la ventana escucha. Ver `correo.rs`.

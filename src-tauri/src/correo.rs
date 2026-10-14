@@ -175,6 +175,29 @@ fn describe(metodo: &str, error: &StoreError) -> String {
     }
 }
 
+/// Lo que devuelve [`mensajes`] cuando la persona le dijo que no al almacén.
+///
+/// **No se traduce**: es una marca que mira la ventana para pintar el estado de
+/// «sin permiso» con su botón, y el texto lo pone ella en el idioma de la sesión
+/// (`src/tools/store-permission.ts`). Una frase traducida acá saldría en el
+/// idioma con el que se compiló el programa, no en el de quien mira.
+pub(crate) const STORE_PERMISSION_DENIED: &str = "store-permission-denied";
+
+/// Si el error de una lectura del almacén es el «no» de la persona al permiso.
+///
+/// Es `org.freedesktop.DBus.Error.AccessDenied` —el único que
+/// `vasak-permissions` le devuelve al almacén cuando la decisión guardada es
+/// «no»— tal como lo deja [`describe`]. Se distingue a propósito del
+/// **fail-closed del chequeo de dueño**: cuando el nombre del sincronizador lo
+/// tiene un impostor, o no lo tiene nadie, el plugin devuelve
+/// [`StoreError::Impostor`] / [`StoreError::NotRunning`] —motivo «no disponible»,
+/// nunca «denegado»—, y ésos **no** son un «sin permiso»: ahí la ventana va al
+/// servidor, no muestra el botón de volver a pedir. Mismo criterio que
+/// `StoreError::is_denied`.
+pub(crate) fn denied_by_store(error: &str) -> bool {
+    error.contains("org.freedesktop.DBus.Error.AccessDenied")
+}
+
 /// Llama a la interfaz en vivo del sincronizador —abrir, marcar, **mandar
 /// correo**—, por el dueño comprobado: mandarle un correo a un impostor sería
 /// peor que leerle datos inventados.
@@ -348,16 +371,43 @@ async fn stored_mailboxes(account_id: &str) -> Result<Vec<StoredMailbox>, String
     serde_json::from_str(&json).map_err(|e| format!("no se pudieron leer las carpetas: {e}"))
 }
 
-/// Los mensajes de una casilla, **del almacén**. `None` si el almacén no los
-/// tiene —el área todavía no se encendió, la primera vuelta no terminó, el
-/// llavero está bloqueado—: quien llama va al servidor.
-async fn stored_messages(account_id: &str, casilla: &str) -> Option<Vec<Resumen>> {
-    let guardadas = stored_mailboxes(account_id).await.ok()?;
-    let id = find_stored_mailbox(&guardadas, casilla)?.id;
-    let json = call_store("ListMessages", &(account_id, id, "", STORE_PAGE))
-        .await
-        .ok()?;
-    summaries_from_page(&json)
+/// Lo que el almacén tenía para una casilla. Partido en tres porque las tres
+/// respuestas llevan a la ventana a lugares distintos.
+enum StoredMessages {
+    /// El almacén los tiene —vacío incluido—: es lo que se muestra.
+    Hit(Vec<Resumen>),
+    /// El almacén no los tiene todavía —el área no se encendió, la primera
+    /// vuelta no terminó, el llavero está bloqueado, el servicio no está—: la
+    /// ventana va al servidor.
+    Miss,
+    /// La persona le dijo que no al almacén: la ventana muestra «sin permiso»
+    /// con el botón para volver a pedirlo, sin ir al servidor por detrás.
+    Denied,
+}
+
+/// Los mensajes de una casilla, **del almacén**.
+///
+/// [`StoredMessages::Miss`] cuando el almacén no los tiene y hay que ir al
+/// servidor; [`StoredMessages::Denied`] cuando el «no» al permiso es lo que
+/// lo impide ([`denied_by_store`]), que no es lo mismo: ahí no se va al
+/// servidor, se ofrece volver a pedir el permiso.
+async fn stored_messages(account_id: &str, casilla: &str) -> StoredMessages {
+    let guardadas = match stored_mailboxes(account_id).await {
+        Ok(guardadas) => guardadas,
+        Err(e) if denied_by_store(&e) => return StoredMessages::Denied,
+        Err(_) => return StoredMessages::Miss,
+    };
+    let Some(id) = find_stored_mailbox(&guardadas, casilla).map(|c| c.id) else {
+        return StoredMessages::Miss;
+    };
+    match call_store("ListMessages", &(account_id, id, "", STORE_PAGE)).await {
+        Ok(json) => match summaries_from_page(&json) {
+            Some(lista) => StoredMessages::Hit(lista),
+            None => StoredMessages::Miss,
+        },
+        Err(e) if denied_by_store(&e) => StoredMessages::Denied,
+        Err(_) => StoredMessages::Miss,
+    }
 }
 
 /// La lista de una página de `ListMessages`. Vacía también vale: la casilla
@@ -465,8 +515,12 @@ pub async fn casillas(account_id: &str) -> Result<Vec<Casilla>, String> {
 /// red; el sincronizador lo mantiene al día en segundo plano. Sólo si el
 /// almacén no tiene esa casilla se le pregunta al servidor.
 pub async fn mensajes(account_id: &str, casilla: &str) -> Result<Vec<Resumen>, String> {
-    if let Some(guardados) = stored_messages(account_id, casilla).await {
-        return Ok(guardados);
+    match stored_messages(account_id, casilla).await {
+        StoredMessages::Hit(guardados) => return Ok(guardados),
+        // El «no» al almacén no se tapa yendo al servidor: la ventana lo
+        // muestra como «sin permiso» y ofrece volver a pedirlo.
+        StoredMessages::Denied => return Err(STORE_PERMISSION_DENIED.to_string()),
+        StoredMessages::Miss => {}
     }
     let json = llamar("ListMessages", &(account_id, casilla)).await?;
     serde_json::from_str(&json).map_err(|e| format!("no se pudo leer el correo: {e}"))
@@ -953,6 +1007,44 @@ mod tests {
                 "apareció una capacidad donde no debería haber ninguna"
             );
         }
+    }
+
+    /// El «no» de la persona al almacén se reconoce por el nombre del error de
+    /// D-Bus que deja [`describe`], y **sólo** ése.
+    #[test]
+    fn el_no_al_almacen_es_access_denied() {
+        assert!(denied_by_store(
+            "ListMessages: org.freedesktop.DBus.Error.AccessDenied: sin permiso"
+        ));
+    }
+
+    /// El fail-closed del chequeo de dueño —impostor, o nadie con el nombre— no
+    /// es un «sin permiso»: ahí la ventana va al servidor, no ofrece el botón.
+    /// Son los mensajes de `StoreError::Impostor` / `NotRunning` tal como los
+    /// deja [`describe`].
+    #[test]
+    fn el_fail_closed_del_dueno_no_es_un_no_al_permiso() {
+        assert!(!denied_by_store(
+            "ListMessages: el nombre del servicio de sincronización lo tiene otro programa"
+        ));
+        assert!(!denied_by_store(
+            "ListMessages: el servicio de sincronización no está funcionando"
+        ));
+    }
+
+    /// Cualquier otro fallo del almacén tampoco: un error de límite, uno de
+    /// servicio desconocido, o uno sin nombre, llevan al servidor, no al botón.
+    #[test]
+    fn los_demas_fallos_del_almacen_no_son_un_no_al_permiso() {
+        assert!(!denied_by_store(
+            "ListMessages: org.freedesktop.DBus.Error.LimitsExceeded: esperá"
+        ));
+        assert!(!denied_by_store(
+            "ListMessages: org.freedesktop.DBus.Error.ServiceUnknown: no está"
+        ));
+        assert!(!denied_by_store(
+            "ListMessages: respuesta inválida del almacén"
+        ));
     }
 
     #[test]
@@ -1753,5 +1845,101 @@ mod tests {
         assert_eq!(nombre, SERVICIO);
         assert_eq!(antes, dueno.unique_name().unwrap().as_str());
         assert_eq!(despues, "");
+    }
+
+    // ── Leer el correo del almacén, y el «no» al permiso ──────────────────────
+
+    /// Un almacén de mentira que, según `mode`, tiene la casilla, no la tiene, o
+    /// niega el permiso. Lo sirve el dueño comprobado en el objeto del almacén.
+    #[derive(Clone)]
+    struct FakeStore {
+        mode: Arc<std::sync::Mutex<&'static str>>,
+    }
+
+    #[zbus::interface(name = "ar.net.vasak.os.AccountsStore")]
+    impl FakeStore {
+        async fn list_mailboxes(&self, _account_id: String) -> zbus::fdo::Result<String> {
+            match *self.mode.lock().unwrap() {
+                // El «no» de la persona: el permiso del almacén negado.
+                "denied" => Err(zbus::fdo::Error::AccessDenied("sin permiso".into())),
+                // Tiene la casilla de entrada.
+                "hit" => Ok(
+                    r#"[{"id":1,"name":"INBOX","display_name":"Entrada","role":"inbox"}]"#
+                        .to_string(),
+                ),
+                // No tiene ninguna casilla: la ventana va al servidor.
+                _ => Ok("[]".to_string()),
+            }
+        }
+
+        async fn list_messages(
+            &self,
+            _account_id: String,
+            _mailbox_id: i64,
+            _filter: String,
+            _page: u32,
+        ) -> zbus::fdo::Result<String> {
+            Ok(r#"{"items":[{"id":10,"uid":7,"from_addr":"Ana <ana@ejemplo.com>","subject":"Del almacén","date_ts":0,"flags_seen":true,"has_attachments":false}]}"#.to_string())
+        }
+    }
+
+    /// El servidor en vivo, para cuando el almacén no tiene la casilla.
+    struct FakeSync;
+
+    #[zbus::interface(name = "ar.net.vasak.os.AccountsSync")]
+    impl FakeSync {
+        async fn list_messages(&self, _account_id: String, _casilla: String) -> String {
+            r#"[{"uid":99,"de":"Servidor","direccion":"srv@ejemplo.com","asunto":"Del servidor","fecha":"2026-09-20T10:00:00Z","sin_leer":false,"con_adjuntos":false}]"#.to_string()
+        }
+    }
+
+    /// El camino de lectura del correo, de punta a punta por el cliente del
+    /// almacén de verdad: del almacén si lo tiene, del servidor si no, y el
+    /// estado «sin permiso» cuando la persona le dijo que no —sin caer al
+    /// servidor por detrás—.
+    #[tokio::test]
+    async fn mensajes_sale_del_almacen_cae_al_servidor_o_dice_sin_permiso() {
+        let _turno = test_bus::exclusive();
+        let bus = PrivateBus::start();
+        let mode = Arc::new(std::sync::Mutex::new("hit"));
+        // El dueño sirve el almacén y la interfaz en vivo en sus dos objetos, y
+        // toma el nombre del sincronizador.
+        let _dueno = zbus::connection::Builder::address(bus.address.as_str())
+            .unwrap()
+            .serve_at(
+                tauri_plugin_vsk_store::client::PATH,
+                FakeStore { mode: mode.clone() },
+            )
+            .unwrap()
+            .serve_at(RUTA, FakeSync)
+            .unwrap()
+            .name(SERVICIO)
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
+        // El cliente global, que le cree al dueño comprobado. Es un `OnceLock`:
+        // esta es la única prueba que lo fija, y nadie más lo lee.
+        use_store(Arc::new(test_bus::client(true)));
+
+        // Con la casilla en el almacén, el correo sale de ahí.
+        *mode.lock().unwrap() = "hit";
+        let desde_almacen = mensajes("a", "INBOX").await.unwrap();
+        assert_eq!(desde_almacen.len(), 1);
+        assert_eq!(desde_almacen[0].asunto, "Del almacén");
+        assert_eq!(desde_almacen[0].store_id, Some(10));
+
+        // Sin esa casilla en el almacén, la ventana va al servidor.
+        *mode.lock().unwrap() = "miss";
+        let desde_servidor = mensajes("a", "INBOX").await.unwrap();
+        assert_eq!(desde_servidor.len(), 1);
+        assert_eq!(desde_servidor[0].asunto, "Del servidor");
+
+        // Con el «no» al almacén no se va al servidor: se dice «sin permiso».
+        *mode.lock().unwrap() = "denied";
+        assert_eq!(
+            mensajes("a", "INBOX").await,
+            Err(STORE_PERMISSION_DENIED.to_string())
+        );
     }
 }

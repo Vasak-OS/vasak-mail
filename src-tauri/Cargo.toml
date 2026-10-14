@@ -1,6 +1,6 @@
 [package]
 name = "vasak-mail"
-version = "0.24.0"
+version = "0.25.0"
 description = "El correo de VasakOS"
 authors = ["Vasak Group", "Joaquin (Pato) Decima"]
 edition = "2021"
@@ -82,6 +82,12 @@ tauri-plugin-vsk-store = "0.2"
 # tiempo de ejecución y **paniquea** si no puede, así que un error de sintaxis no
 # se ve hasta que la aplicación no arranca.
 serde_yaml = "0.9"
+# La característica `p2p` de zbus —sólo para las pruebas—: el puente del comando
+# de «volver a pedir el permiso» (`store_access.rs`) se prueba contra un servicio
+# de permisos de mentira del otro lado de un par de sockets, sin tocar el bus de
+# sistema. `Builder::unix_stream().server(guid).p2p()` y `Guid::generate()` viven
+# tras `p2p`. Es dev-only: no entra en el binario que se publica.
+zbus = { version = "5", default-features = false, features = ["tokio", "p2p"] }
 
 [profile.dev]
 incremental = true # Compile your binary in smaller steps.
