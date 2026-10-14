@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { onStoreChanged, onSyncStatus } from '@vasakgroup/plugin-vsk-store';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import { ActionButton, AlertMessage, ThemeIcon } from '@vasakgroup/vue-libvasak';
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
@@ -416,6 +417,7 @@ function alApretar(evento: KeyboardEvent) {
 let dejarDeEscuchar: UnlistenFn | null = null;
 let dejarDeEscucharMailto: UnlistenFn | null = null;
 let stopWatchingStatus: UnlistenFn | null = null;
+let stopWatchingStore: UnlistenFn | null = null;
 /**
  * Si la vista ya se desmontó.
  *
@@ -439,6 +441,10 @@ onMounted(async () => {
 	// primer mensaje que se abra y desde la primera tecla que se apriete.
 	// Leerlas después dejaría la primera interacción con los valores de siempre.
 	await cargarPreferencias();
+	// Si la ventana se cerró mientras se leían, `onUnmounted` ya corrió: un
+	// oyente registrado ahora no lo sacaría nadie, y los atajos seguirían
+	// andando sobre una vista que ya no existe.
+	if (desmontada) return;
 
 	// En la ventana entera y no en un elemento: los atajos tienen que andar sin
 	// que haya que hacer clic en la lista primero, que es lo que pasaría si el
@@ -459,9 +465,22 @@ onMounted(async () => {
 		console.error('no se pudo escuchar los avisos de correo nuevo', e);
 	}
 
+	// Lo que cambió en el almacén del sistema, que es de donde sale la lista:
+	// lo avisa `tauri-plugin-vsk-store`, sólo del sincronizador comprobado.
+	try {
+		const cancelar = await onStoreChanged(() => reload());
+		if (desmontada) {
+			cancelar();
+		} else {
+			stopWatchingStore = cancelar;
+		}
+	} catch (e) {
+		console.error('no se pudo escuchar los cambios del almacén', e);
+	}
+
 	// El estado de la sincronización de cada cuenta, y cada vez que cambia.
 	try {
-		const cancelar = await listen('mail-sync-status', () => onSyncStatusChanged());
+		const cancelar = await onSyncStatus(() => onSyncStatusChanged());
 		if (desmontada) {
 			cancelar();
 		} else {
@@ -514,6 +533,7 @@ onUnmounted(() => {
 	window.removeEventListener('keydown', alApretar);
 	dejarDeEscuchar?.();
 	stopWatchingStatus?.();
+	stopWatchingStore?.();
 	dejarDeEscucharMailto?.();
 });
 </script>

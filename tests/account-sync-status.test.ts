@@ -2,27 +2,34 @@
  * Cómo va la sincronización de cada cuenta, en la lista de cuentas
  * (Vasak-OS/vasak-mail#68).
  *
- * El estado sale de `sync_status` (el `GetStatus` del almacén) y se relee con el
- * aviso `mail-sync-status`, que escucha la ventana; «Actualizar» guarda a qué
- * cuentas no se les pudo pedir una vuelta. `invoke` y `listen` son los dobles
- * de `tests/dobles.ts`: el bus y el almacén se prueban en Rust
- * (`src-tauri/src/correo.rs`).
+ * El estado sale de `syncStatus('email')` de `@vasakgroup/plugin-vsk-store`
+ * (el `GetStatus` del almacén) y se relee con su aviso `STATUS_EVENT`, que
+ * escucha la ventana; «Actualizar» guarda a qué cuentas no se les pudo pedir
+ * una vuelta. `invoke` y `listen` son los dobles de `tests/dobles.ts`, por
+ * debajo del paquete del plugin: el bus, la comprobación del dueño y
+ * `syncLine` se prueban en el plugin.
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
+import {
+	type AccountSyncStatus,
+	STATUS_EVENT,
+	type SyncRequestFailure,
+} from '@vasakgroup/plugin-vsk-store';
 import { StatusDot } from '@vasakgroup/vue-libvasak';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import AccountsComponent from '@/components/mail/AccountsComponent.vue';
 import { type Cuenta, useCorreo } from '@/composables/use-correo';
 import { TODAS } from '@/tools/bandeja';
-import type { AccountSyncStatus, SyncRequestFailure } from '@/tools/sync-status';
 import MailView from '@/views/MailView.vue';
 import { contestar, emit, fallar, invocaciones, olvidarTodo } from './dobles';
 
 // Montar la ventana entera la primera vez compila todo su árbol.
 setDefaultTimeout(60_000);
 
-const STATUS_EVENT = 'mail-sync-status';
+/** Los comandos del plugin del almacén, tal como los manda su paquete. */
+const SYNC_STATUS = 'plugin:vsk-store|sync_status';
+const REQUEST_SYNC = 'plugin:vsk-store|request_sync';
 
 const ANA: Cuenta = { account_id: 'ana', display_name: 'Ana', sin_leer: 0, error: '' };
 const LUIS: Cuenta = { account_id: 'luis', display_name: 'Luis', sin_leer: 0, error: '' };
@@ -62,13 +69,13 @@ afterEach(() => {
 	// Las respuestas del backend se comparten entre archivos: se dejan como
 	// estaban.
 	contestar('listar_cuentas', []);
-	contestar('sync_status', undefined);
-	contestar('request_sync', undefined);
+	contestar(SYNC_STATUS, undefined);
+	contestar(REQUEST_SYNC, undefined);
 });
 
 describe('el estado de la sincronización', () => {
 	test('se lee el estado de cada cuenta del almacén', async () => {
-		contestar('sync_status', STATUSES);
+		contestar(SYNC_STATUS, STATUSES);
 		const correo = useCorreo();
 
 		await correo.loadSyncStatus();
@@ -76,8 +83,20 @@ describe('el estado de la sincronización', () => {
 		expect(correo.syncStatuses.value).toEqual(STATUSES);
 	});
 
+	// El plugin sólo contesta las áreas que registró la aplicación: pedir otra,
+	// o ninguna, deja la lista de cuentas sin estado y sin decir por qué.
+	test('el estado se pide sólo del área del correo', async () => {
+		contestar(SYNC_STATUS, STATUSES);
+		const correo = useCorreo();
+
+		await correo.loadSyncStatus();
+
+		const pedidos = invocaciones.filter((i) => i.comando === SYNC_STATUS).map((i) => i.args);
+		expect(pedidos).toEqual([{ area: 'email' }]);
+	});
+
 	test('una respuesta que no es una lista es ningún estado', async () => {
-		contestar('sync_status', { error: 'no' });
+		contestar(SYNC_STATUS, { error: 'no' });
 		const correo = useCorreo();
 
 		await correo.loadSyncStatus();
@@ -86,10 +105,10 @@ describe('el estado de la sincronización', () => {
 	});
 
 	test('si no se puede leer el estado, se queda el que había', async () => {
-		contestar('sync_status', STATUSES);
+		contestar(SYNC_STATUS, STATUSES);
 		const correo = useCorreo();
 		await correo.loadSyncStatus();
-		fallar('sync_status', 'GetStatus: el servicio no existe');
+		fallar(SYNC_STATUS, 'GetStatus: el servicio no existe');
 
 		await quietly(() => correo.loadSyncStatus());
 
@@ -101,7 +120,7 @@ describe('lo que «Actualizar» no pudo pedir', () => {
 	test('se guarda qué cuentas rechazaron el pedido y por qué', async () => {
 		contestar('listar_cuentas', [ANA, LUIS]);
 		const failures: SyncRequestFailure[] = [{ account_id: 'luis', reason: 'denied' }];
-		contestar('request_sync', failures);
+		contestar(REQUEST_SYNC, failures);
 		const correo = useCorreo();
 		await correo.cargarCuentas();
 
@@ -112,11 +131,11 @@ describe('lo que «Actualizar» no pudo pedir', () => {
 
 	test('un «Actualizar» que sale bien borra los rechazos del anterior', async () => {
 		contestar('listar_cuentas', [ANA, LUIS]);
-		contestar('request_sync', [{ account_id: 'luis', reason: 'failed' }]);
+		contestar(REQUEST_SYNC, [{ account_id: 'luis', reason: 'failed' }]);
 		const correo = useCorreo();
 		await correo.cargarCuentas();
 		await correo.refresh();
-		contestar('request_sync', []);
+		contestar(REQUEST_SYNC, []);
 
 		await correo.refresh();
 
@@ -125,7 +144,7 @@ describe('lo que «Actualizar» no pudo pedir', () => {
 
 	test('si el programa no contesta en la bandeja combinada, todas las cuentas quedan sin servicio', async () => {
 		contestar('listar_cuentas', [ANA, LUIS]);
-		fallar('request_sync', 'el programa no contesta');
+		fallar(REQUEST_SYNC, 'el programa no contesta');
 		const correo = useCorreo();
 		await correo.cargarCuentas();
 		expect(correo.elegida.value).toBe(TODAS);
@@ -140,7 +159,7 @@ describe('lo que «Actualizar» no pudo pedir', () => {
 
 	test('si el programa no contesta con una cuenta elegida, sólo esa queda sin servicio', async () => {
 		contestar('listar_cuentas', [ANA, LUIS]);
-		fallar('request_sync', 'el programa no contesta');
+		fallar(REQUEST_SYNC, 'el programa no contesta');
 		const correo = useCorreo();
 		await correo.cargarCuentas();
 		await correo.elegir('luis');
@@ -152,7 +171,7 @@ describe('lo que «Actualizar» no pudo pedir', () => {
 
 	test('«Actualizar» también relee el estado', async () => {
 		contestar('listar_cuentas', [ANA]);
-		contestar('sync_status', STATUSES);
+		contestar(SYNC_STATUS, STATUSES);
 		const correo = useCorreo();
 
 		await correo.refresh();
@@ -162,14 +181,14 @@ describe('lo que «Actualizar» no pudo pedir', () => {
 
 	test('el cambio de estado olvida «se acaba de pedir» y deja los demás rechazos', async () => {
 		contestar('listar_cuentas', [ANA, LUIS]);
-		contestar('request_sync', [
+		contestar(REQUEST_SYNC, [
 			{ account_id: 'ana', reason: 'too_soon' },
 			{ account_id: 'luis', reason: 'denied' },
 		]);
 		const correo = useCorreo();
 		await correo.cargarCuentas();
 		await correo.refresh();
-		contestar('sync_status', STATUSES);
+		contestar(SYNC_STATUS, STATUSES);
 
 		await correo.onSyncStatusChanged();
 
@@ -269,7 +288,7 @@ describe('la ventana', () => {
 	}
 
 	test('muestra el estado del almacén debajo de cada cuenta', async () => {
-		contestar('sync_status', STATUSES);
+		contestar(SYNC_STATUS, STATUSES);
 		const ventana = await abrirLaVentana();
 
 		const lines = ventana.findAll('[data-testid="sync-status"]');
@@ -279,20 +298,20 @@ describe('la ventana', () => {
 	test('el aviso de estado relee el estado y lo muestra, sin releer el correo', async () => {
 		const ventana = await abrirLaVentana();
 		expect(ventana.find('[data-testid="sync-status"]').exists()).toBe(false);
-		contestar('sync_status', STATUSES);
+		contestar(SYNC_STATUS, STATUSES);
 		invocaciones.length = 0;
 
 		await emit(STATUS_EVENT);
 		await asentar();
 
-		expect(timesInvoked('sync_status')).toBe(1);
+		expect(timesInvoked(SYNC_STATUS)).toBe(1);
 		expect(timesInvoked('listar_cuentas')).toBe(0);
 		expect(ventana.findAll('[data-testid="sync-status"]')).toHaveLength(2);
 	});
 
 	test('el botón «Actualizar» dice qué cuenta rechazó el pedido', async () => {
 		const ventana = await abrirLaVentana();
-		contestar('request_sync', [{ account_id: 'luis', reason: 'too_soon' }]);
+		contestar(REQUEST_SYNC, [{ account_id: 'luis', reason: 'too_soon' }]);
 
 		await ventana.find('button[title="lista.actualizar"]').trigger('click');
 		await asentar();
@@ -310,7 +329,7 @@ describe('la ventana', () => {
 		await emit(STATUS_EVENT);
 		await asentar();
 
-		expect(timesInvoked('sync_status')).toBe(0);
+		expect(timesInvoked(SYNC_STATUS)).toBe(0);
 	});
 
 	test('cerrada antes de engancharse, tampoco queda escuchando el estado', async () => {
@@ -324,6 +343,6 @@ describe('la ventana', () => {
 		await emit(STATUS_EVENT);
 		await asentar();
 
-		expect(timesInvoked('sync_status')).toBe(0);
+		expect(timesInvoked(SYNC_STATUS)).toBe(0);
 	});
 });

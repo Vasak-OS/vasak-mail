@@ -1,6 +1,6 @@
 [package]
 name = "vasak-mail"
-version = "0.23.0"
+version = "0.24.0"
 description = "El correo de VasakOS"
 authors = ["Vasak Group", "Joaquin (Pato) Decima"]
 edition = "2021"
@@ -72,17 +72,10 @@ zbus = { version = "5", default-features = false, features = ["tokio"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"] }
 # Para el flujo de señales de D-Bus, que es cómo llega el aviso de correo nuevo.
 futures-util = "0.3"
-# Comprueba, del lado del consumidor, que quien tiene el nombre del sincronizador
-# sea de verdad el servicio instalado —no un proceso de la sesión que tomó el
-# nombre mientras el servicio no estaba— antes de confiar en lo que conteste. La
-# comprobación la comparte con calendario, contactos y el escritorio. Es el mismo
-# zbus del espacio de trabajo: no suma ninguna biblioteca compartida al paquete.
-# Ver `correo.rs` y `vasak-accounts#77`.
-#
-# PENDIENTE: va por git mientras el crate no esté publicado en crates.io. En
-# cuanto salga, esto pasa a `vasak-accounts-store-client = "0.20"` y se refresca
-# el `Cargo.lock`.
-vasak-accounts-store-client = { git = "https://github.com/Vasak-OS/vasak-accounts", branch = "main" }
+# El cliente del almacén del sistema y de la interfaz en vivo del
+# sincronizador, compartido con calendario, contactos y el escritorio:
+# comprueba al dueño del nombre antes de creerle o mandarle nada.
+tauri-plugin-vsk-store = "0.2"
 
 [dev-dependencies]
 # Sólo para el test que valida los catálogos de idioma: el plugin los parsea en

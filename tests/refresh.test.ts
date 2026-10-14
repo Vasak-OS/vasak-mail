@@ -10,13 +10,16 @@
  * - que «Actualizar» le pida la vuelta al sincronizador **por las cuentas que
  *   se están mirando** y después relea, aunque el pedido falle;
  * - que el botón y el atajo de la ventana llamen a eso y no sólo a releer;
- * - y que «Actualizar» y el aviso del almacén (`correo-cambio`) relean también
- *   las carpetas de la cuenta elegida: una vuelta del sincronizador puede
- *   sumar o sacar carpetas, y sin releerlas la lista de al costado se queda con
- *   las de antes.
+ * - que «Actualizar», el aviso en vivo del sincronizador (`correo-cambio`) y
+ *   el de cambios del almacén que pasa `tauri-plugin-vsk-store`
+ *   (`CHANGED_EVENT`) relean también las carpetas de la cuenta elegida: una
+ *   vuelta del sincronizador puede sumar o sacar carpetas, y sin releerlas la
+ *   lista de al costado se queda con las de antes;
+ * - y que al cerrar la ventana se deje de escuchar al almacén.
  */
 
 import { afterEach, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
+import { CHANGED_EVENT } from '@vasakgroup/plugin-vsk-store';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { type Casilla, type Cuenta, type Resumen, useCorreo } from '@/composables/use-correo';
 import { TODAS } from '@/tools/bandeja';
@@ -25,6 +28,9 @@ import { contestar, emit, fallar, invocaciones, olvidarTodo } from './dobles';
 
 // Montar la ventana entera la primera vez compila todo su árbol.
 setDefaultTimeout(60_000);
+
+/** El pedido de «Actualizar» del plugin del almacén. */
+const REQUEST_SYNC = 'plugin:vsk-store|request_sync';
 
 const ANA: Cuenta = { account_id: 'ana', display_name: 'Ana', sin_leer: 0, error: '' };
 const LUIS: Cuenta = { account_id: 'luis', display_name: 'Luis', sin_leer: 0, error: '' };
@@ -113,7 +119,7 @@ describe('actualizar', () => {
 
 		await correo.refresh();
 
-		expect(argumentosDe('request_sync')).toEqual([{ accountIds: ['ana', 'luis'] }]);
+		expect(argumentosDe(REQUEST_SYNC)).toEqual([{ accountIds: ['ana', 'luis'] }]);
 	});
 
 	test('con una cuenta elegida pide sólo la de esa cuenta', async () => {
@@ -125,7 +131,7 @@ describe('actualizar', () => {
 
 		await correo.refresh();
 
-		expect(argumentosDe('request_sync')).toEqual([{ accountIds: ['luis'] }]);
+		expect(argumentosDe(REQUEST_SYNC)).toEqual([{ accountIds: ['luis'] }]);
 	});
 
 	test('sin nada elegido no pide la vuelta de ninguna cuenta', async () => {
@@ -134,7 +140,7 @@ describe('actualizar', () => {
 
 		await correo.refresh();
 
-		expect(argumentosDe('request_sync')).toEqual([{ accountIds: [] }]);
+		expect(argumentosDe(REQUEST_SYNC)).toEqual([{ accountIds: [] }]);
 	});
 
 	test('pide la vuelta y después relee lo que hay', async () => {
@@ -144,9 +150,9 @@ describe('actualizar', () => {
 		await correo.refresh();
 
 		const orden = comandos();
-		expect(orden).toContain('request_sync');
+		expect(orden).toContain(REQUEST_SYNC);
 		expect(orden).toContain('listar_cuentas');
-		expect(orden.indexOf('request_sync')).toBeLessThan(orden.indexOf('listar_cuentas'));
+		expect(orden.indexOf(REQUEST_SYNC)).toBeLessThan(orden.indexOf('listar_cuentas'));
 		// Y la relectura llegó a la lista: no basta con preguntar las cuentas.
 		expect(argumentosDe('listar_mensajes')).toEqual([{ accountId: 'ana', casilla: 'INBOX' }]);
 		expect(correo.elegida.value).toBe('ana');
@@ -156,7 +162,7 @@ describe('actualizar', () => {
 		// El almacén tiene un límite por llamante: que diga que no es lo
 		// esperable, y lo que ya está se tiene que seguir viendo al día.
 		contestar('listar_cuentas', [ANA]);
-		fallar('request_sync', 'límite por llamante');
+		fallar(REQUEST_SYNC, 'límite por llamante');
 		const correo = useCorreo();
 		const errorDeConsola = console.error;
 		console.error = () => {};
@@ -200,7 +206,7 @@ describe('las carpetas al actualizar', () => {
 
 		await correo.reload();
 
-		expect(argumentosDe('request_sync')).toEqual([]);
+		expect(argumentosDe(REQUEST_SYNC)).toEqual([]);
 		expect(correo.casillas.value).toEqual([ENTRADA]);
 	});
 
@@ -253,7 +259,7 @@ describe('la ventana', () => {
 		await boton.trigger('click');
 		await asentar();
 
-		expect(argumentosDe('request_sync')).toEqual([{ accountIds: ['ana'] }]);
+		expect(argumentosDe(REQUEST_SYNC)).toEqual([{ accountIds: ['ana'] }]);
 		expect(comandos()).toContain('listar_cuentas');
 	});
 
@@ -263,7 +269,7 @@ describe('la ventana', () => {
 		window.dispatchEvent(new KeyboardEvent('keydown', { key: '.' }));
 		await asentar();
 
-		expect(argumentosDe('request_sync')).toEqual([{ accountIds: ['ana'] }]);
+		expect(argumentosDe(REQUEST_SYNC)).toEqual([{ accountIds: ['ana'] }]);
 	});
 
 	test('un aviso del almacén muestra las carpetas nuevas', async () => {
@@ -275,9 +281,37 @@ describe('la ventana', () => {
 		await emit('correo-cambio');
 		await asentar();
 
-		expect(argumentosDe('request_sync')).toEqual([]);
+		expect(argumentosDe(REQUEST_SYNC)).toEqual([]);
 		expect(argumentosDe('listar_casillas')).toContainEqual({ accountId: 'ana' });
 		expect(ventana.text()).toContain('Facturas 2026');
+	});
+
+	// Lo que guarda el sincronizador en segundo plano llega por el plugin, no
+	// por `correo-cambio`: sin este oyente la lista se queda vieja hasta que
+	// la persona apriete «Actualizar».
+	test('un cambio guardado en el almacén relee la lista y las carpetas', async () => {
+		contestar('listar_casillas', [ENTRADA]);
+		const ventana = await abrirLaVentana();
+		contestar('listar_casillas', [ENTRADA, FACTURAS]);
+
+		await emit(CHANGED_EVENT, { areas: ['email'] });
+		await asentar();
+
+		expect(argumentosDe(REQUEST_SYNC)).toEqual([]);
+		expect(comandos()).toContain('listar_cuentas');
+		expect(argumentosDe('listar_casillas')).toContainEqual({ accountId: 'ana' });
+		expect(ventana.text()).toContain('Facturas 2026');
+	});
+
+	test('al cerrar la ventana deja de escuchar al almacén', async () => {
+		const ventana = await abrirLaVentana();
+		ventana.unmount();
+		vista = null;
+
+		await emit(CHANGED_EVENT, { areas: ['email'] });
+		await asentar();
+
+		expect(comandos()).toEqual([]);
 	});
 
 	test('el botón «Actualizar» muestra las carpetas nuevas', async () => {

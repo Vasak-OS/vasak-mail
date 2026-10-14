@@ -1,11 +1,16 @@
 import { invoke } from '@tauri-apps/api/core';
+import {
+	type AccountSyncStatus,
+	requestSync,
+	type SyncRequestFailure,
+	syncStatus,
+} from '@vasakgroup/plugin-vsk-store';
 import { computed, ref } from 'vue';
 import { usePreferencias } from '@/composables/use-preferencias';
 import { claveDe, combinados, esElMismo, TODAS } from '@/tools/bandeja';
 import { alcance, filtrados } from '@/tools/busqueda';
 import { noAntesDe, quedan } from '@/tools/deshacer';
 import type { Saneado } from '@/tools/formato';
-import type { AccountSyncStatus, SyncRequestFailure } from '@/tools/sync-status';
 
 /**
  * La carpeta de entrada, que es la única que tienen todas las cuentas con el
@@ -241,8 +246,7 @@ export function useCorreo() {
 	 */
 	async function loadSyncStatus() {
 		try {
-			const statuses = await invoke<AccountSyncStatus[]>('sync_status');
-			syncStatuses.value = Array.isArray(statuses) ? statuses : [];
+			syncStatuses.value = await syncStatus('email');
 		} catch (e) {
 			console.error('no se pudo leer el estado de la sincronización', e);
 		}
@@ -272,8 +276,7 @@ export function useCorreo() {
 				? [elegida.value]
 				: [];
 		try {
-			const failures = await invoke<SyncRequestFailure[]>('request_sync', { accountIds: ids });
-			refreshFailures.value = Array.isArray(failures) ? failures : [];
+			refreshFailures.value = await requestSync(ids);
 		} catch (e) {
 			console.error('no se pudo pedir una vuelta al sincronizador', e);
 			refreshFailures.value = ids.map((account_id) => ({
