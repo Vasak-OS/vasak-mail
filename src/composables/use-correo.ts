@@ -11,6 +11,12 @@ import { claveDe, combinados, esElMismo, TODAS } from '@/tools/bandeja';
 import { alcance, filtrados } from '@/tools/busqueda';
 import { noAntesDe, quedan } from '@/tools/deshacer';
 import type { Saneado } from '@/tools/formato';
+import {
+	isStorePermissionDenied,
+	type ReaskOutcome,
+	reaskNoticeKey,
+	reaskReopened,
+} from '@/tools/store-permission';
 
 /**
  * La carpeta de entrada, que es la única que tienen todas las cuentas con el
@@ -206,6 +212,12 @@ export function useCorreo() {
 	const cargandoMensaje = ref(false);
 	/** Lo que impidió leer algo, en el idioma de lo que la persona puede hacer. */
 	const error = ref('');
+	/**
+	 * Si la persona le dijo que no al almacén del correo. La lista queda en el
+	 * estado de «sin permiso», con el botón para volver a pedirlo
+	 * (`tools/store-permission.ts`), en vez de un error encima del correo.
+	 */
+	const sinPermiso = ref(false);
 
 	/**
 	 * Cuál es la carga vigente, para la lista y para el mensaje por separado.
@@ -298,6 +310,30 @@ export function useCorreo() {
 		await cargarCasillas();
 	}
 
+	/**
+	 * Vuelve a pedir el permiso del almacén y, si se pudo pedir y reabrió el
+	 * diálogo, relee: al releer aparece el diálogo de `vasak-permissions`. Si la
+	 * persona vuelve a decir que no, la lista sigue en el estado de «sin
+	 * permiso». Devuelve la clave de traducción del aviso cuando no se pudo **ni
+	 * reabrir** —el techo de uno por minuto, o un recurso ajeno—, para que la
+	 * vista la muestre; cadena vacía cuando sí se reabrió y ya se releyó.
+	 */
+	async function pedirPermisoDeNuevo(): Promise<string> {
+		let outcome: ReaskOutcome;
+		try {
+			outcome = await invoke<ReaskOutcome>('request_mail_access_again');
+		} catch {
+			// El comando contesta un desenlace aun si el bus falló; que el propio
+			// `invoke` rechace es un fallo de IPC, y se dice como tal.
+			return 'permiso.error';
+		}
+		if (reaskReopened(outcome)) {
+			await reload();
+			return '';
+		}
+		return reaskNoticeKey(outcome);
+	}
+
 	async function cargarCuentas() {
 		await cargarSalida();
 		try {
@@ -363,6 +399,9 @@ export function useCorreo() {
 		const mio = ++listaVigente;
 		cargandoLista.value = true;
 		const fallos: string[] = [];
+		// Si alguna lectura chocó con el «no» al almacén. Se decide al final, para
+		// que una relectura con el permiso ya concedido lo apague sola.
+		let denegado = false;
 
 		try {
 			let lista: Resumen[];
@@ -380,6 +419,13 @@ export function useCorreo() {
 						try {
 							return await traerDe(c.account_id, ENTRADA);
 						} catch (e) {
+							// El «no» al almacén no es un aviso por cuenta: es el mismo
+							// permiso para todas, así que se marca una vez y la vista
+							// muestra el estado de «sin permiso» con su botón.
+							if (isStorePermissionDenied(e)) {
+								denegado = true;
+								return [];
+							}
 							fallos.push(`${c.display_name}: ${e}`);
 							return [];
 						}
@@ -414,10 +460,18 @@ export function useCorreo() {
 			}
 		} catch (e) {
 			if (mio === listaVigente) {
-				error.value = String(e);
+				// El «no» al almacén no es un error que mostrar encima del correo:
+				// es el estado de «sin permiso», que la vista pinta con su botón.
+				if (isStorePermissionDenied(e)) {
+					denegado = true;
+					mensajes.value = [];
+				} else {
+					error.value = String(e);
+				}
 			}
 		} finally {
 			if (mio === listaVigente) {
+				sinPermiso.value = denegado;
 				cargandoLista.value = false;
 			}
 		}
@@ -765,6 +819,8 @@ export function useCorreo() {
 		cargandoLista,
 		cargandoMensaje,
 		error,
+		sinPermiso,
+		pedirPermisoDeNuevo,
 		cargarCuentas,
 		refresh,
 		syncStatuses,

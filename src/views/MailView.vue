@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { onStoreChanged, onSyncStatus } from '@vasakgroup/plugin-vsk-store';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
-import { ActionButton, AlertMessage, ThemeIcon } from '@vasakgroup/vue-libvasak';
+import { ActionButton, AlertMessage, EmptyState, ThemeIcon } from '@vasakgroup/vue-libvasak';
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import AccountsComponent from '@/components/mail/AccountsComponent.vue';
 import ComposeComponent from '@/components/mail/ComposeComponent.vue';
@@ -44,6 +44,8 @@ const {
 	cargandoLista,
 	cargandoMensaje,
 	error,
+	sinPermiso,
+	pedirPermisoDeNuevo,
 	salientes,
 	enviando,
 	cargarCuentas,
@@ -84,6 +86,30 @@ const dondeEstoy = computed(() => {
 		cuenta: cuentas.value.find((c) => c.account_id === elegida.value)?.display_name ?? '',
 	};
 });
+
+/**
+ * El botón de «volver a pedir el permiso» del almacén: mientras pide se
+ * desactiva —no es instantáneo y dos clics seguidos chocan con el techo de uno
+ * por minuto— y, si no se pudo ni reabrir, deja debajo el motivo traducido (el
+ * techo, o un recurso ajeno). Si se pudo reabrir, `pedirPermisoDeNuevo` ya
+ * releyó: o aparece el correo, o vuelve el mismo estado porque la persona dijo
+ * que no de nuevo.
+ */
+const pidiendoPermiso = ref(false);
+const avisoPermiso = ref('');
+async function reclamarPermiso() {
+	if (pidiendoPermiso.value) {
+		return;
+	}
+	avisoPermiso.value = '';
+	pidiendoPermiso.value = true;
+	try {
+		const clave = await pedirPermisoDeNuevo();
+		avisoPermiso.value = clave ? t(clave) : '';
+	} finally {
+		pidiendoPermiso.value = false;
+	}
+}
 
 /** El borrador abierto, o `null` si no hay ninguno. */
 const redactando = ref<Borrador | null>(null);
@@ -629,6 +655,33 @@ onUnmounted(() => {
       <AlertMessage v-if="error" tone="error" icon="dialog-error" class="mx-1 mt-1">
         {{ error }}
       </AlertMessage>
+
+      <!-- Sin permiso para leer el almacén, el correo guardado no se puede
+           mostrar y no hay salida sin volver a pedirlo: el estado lo dice con su
+           botón. Si se reabre el diálogo, `reclamarPermiso` ya releyó. -->
+      <EmptyState
+        v-if="sinPermiso"
+        class="mx-1 mt-1"
+        :title="t('permiso.titulo')"
+        :note="t('permiso.descripcion')"
+        bordered>
+        <div data-reask-permission class="flex flex-col items-center gap-2">
+          <ActionButton
+            :label="t('permiso.pedir')"
+            variant="secondary"
+            size="sm"
+            :loading="pidiendoPermiso"
+            :disabled="pidiendoPermiso"
+            @click="reclamarPermiso" />
+          <p
+            v-if="avisoPermiso"
+            class="m-0 text-body-xs text-tx-muted"
+            aria-live="polite"
+            data-reask-note>
+            {{ avisoPermiso }}
+          </p>
+        </div>
+      </EmptyState>
 
       <!-- Lo que el enlace pedía y esta ventana no puede dar.
            Se dice acá arriba y no dentro de la ventana de redacción, que es
