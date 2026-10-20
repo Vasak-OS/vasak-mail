@@ -9,7 +9,7 @@
 
 import { afterAll, afterEach, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
-import I18n from '@vasakgroup/tauri-plugin-i18n';
+import I18n, { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import ComposeComponent from '@/components/mail/ComposeComponent.vue';
 import MessageListComponent from '@/components/mail/MessageListComponent.vue';
 import MessageComponent from '@/components/mail/MessageComponent.vue';
@@ -37,19 +37,31 @@ function flatten(tree: Record<string, unknown>, prefix = ''): Record<string, str
 
 let es: Record<string, string> = {};
 
+/** Tira el singleton de i18n y deja el estado del composable reflejando uno vacío. */
+function resetI18n() {
+	(I18n as unknown as { instance: unknown }).instance = undefined;
+	// El composable refleja la instancia **en cada `useI18n()`**: sin esta llamada
+	// quedaría con el catálogo de acá hasta que alguien monte algo, y el próximo
+	// archivo vería los textos resueltos donde espera las claves.
+	useI18n();
+}
+
 beforeAll(async () => {
 	const yaml = Bun.YAML.parse(await Bun.file(`${import.meta.dir}/../src-tauri/locales/es.yml`).text());
 	es = flatten(yaml as Record<string, unknown>);
 	contestar(LOAD, { es: { ...CATALOGO.es, ...es } });
-	// Se carga desde cero: `tests/traducciones.test.ts` hace lo mismo y deja el
-	// singleton en el estado que le toque a cada archivo.
-	(I18n as unknown as { instance: unknown }).instance = undefined;
+	// Se carga desde cero: el singleton puede venir cargado por otro archivo.
+	resetI18n();
 	await I18n.getInstance().load();
 });
 
 afterAll(() => {
-	// El catálogo de una sola clave es lo que espera `traducciones.test.ts`.
+	// El catálogo con la clave de prueba y el singleton sin cargar: es lo que ven
+	// los demás archivos, que esperan las claves crudas (y `traducciones.test.ts`,
+	// que parte de un catálogo sin cargar). Sin esto el estado global de i18n se
+	// filtra y el resultado depende del orden en que Bun recorra los archivos.
 	contestar(LOAD, CATALOGO);
+	resetI18n();
 });
 
 const vistas = new Set<VueWrapper>();
