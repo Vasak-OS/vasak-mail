@@ -4,6 +4,7 @@ import { open as abrirDialogo } from '@tauri-apps/plugin-dialog';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import {
 	ActionButton,
+	AlertMessage,
 	Dialog,
 	DialogContent,
 	DialogTitle,
@@ -14,6 +15,7 @@ import {
 	PopoverContent,
 	PopoverTrigger,
 	SelectField,
+	SwitchRow,
 	TextArea,
 	TextInput,
 } from '@vasakgroup/vue-libvasak';
@@ -32,6 +34,19 @@ const props = defineProps<{
 	cuentas: Cuenta[];
 	/** Desde cuál sale. */
 	cuenta: string;
+	/**
+	 * Lo que impidió mandar, si algo lo impidió. Va **adentro del formulario**:
+	 * el aviso general de la ventana queda detrás de este diálogo, y un envío
+	 * rechazado —sin certificado para firmar, una dirección mal escrita— que no
+	 * se ve parece un botón que no hace nada.
+	 */
+	error?: string;
+	/**
+	 * Si es una respuesta a un mensaje que venía cifrado. La cita lleva el texto
+	 * ya descifrado y la respuesta sale **sin cifrar**: cifrar al salir todavía
+	 * no existe, y callarlo filtra en claro lo que el otro mandó protegido.
+	 */
+	repliesToEncrypted?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -47,6 +62,8 @@ const para = ref(props.inicial.para.join(', '));
 const cc = ref(props.inicial.cc.join(', '));
 const asunto = ref(props.inicial.asunto);
 const cuerpo = ref(props.inicial.cuerpo);
+/** Firmar con S/MIME. Apagado por omisión: firmar es una decisión por mensaje. */
+const sign = ref(props.inicial.firmar ?? false);
 
 /**
  * De qué cuenta sale, siempre a la vista.
@@ -229,6 +246,8 @@ function armar(): Borrador {
 		asunto: asunto.value,
 		cuerpo: cuerpo.value,
 		adjuntos: adjuntos.value,
+		// Sólo cuando se pidió: apagado no viaja, como en el servicio.
+		firmar: sign.value || undefined,
 	};
 }
 
@@ -308,6 +327,24 @@ function cerrar() {
             resize="none"
             class="min-h-40 flex-1" />
         </FormGroup>
+
+        <!-- El servicio rechaza el envío con el motivo cuando se pide firmar y no
+             hay certificado para la dirección de la cuenta: **no manda sin firmar
+             en silencio**. El texto es el suyo; acá sólo se muestra. -->
+        <SwitchRow
+          v-model="sign"
+          :label="t('redactar.firmar')"
+          :description="t('redactar.firmarPorQue')"
+          icon="application-certificate-symbolic"
+          icon-type="symbol" />
+
+        <AlertMessage v-if="repliesToEncrypted" tone="info" icon="channel-insecure-symbolic">
+          {{ t('redactar.respuestaACifrado') }}
+        </AlertMessage>
+
+        <AlertMessage v-if="error" tone="error" icon="dialog-error">
+          <span class="break-words">{{ error }}</span>
+        </AlertMessage>
 
         <!-- Lo que se va a mandar pegado.
              El tamaño va al lado del nombre porque es lo que decide si el mensaje

@@ -135,6 +135,29 @@ redactar:
   citado: "On {0}, {1} wrote:"
   seEncola: The message is saved and goes out as soon as it can. You can close this window.
   descartarBorrador: Discard what you wrote?
+  firmar: Sign with S/MIME
+  firmarPorQue: With your certificate. Without one for this account, the message will not go out.
+  respuestaACifrado: You are replying to an encrypted message. The reply quotes its text and goes out unencrypted.
+smime:
+  # `{0}` is the address of the certificate that signed. Never "valid": what was
+  # checked is the signature, not that an authority vouches for the certificate.
+  firmadoNoVerificado: "Signed, not verified — {0}"
+  firmaTitulo: Unverified signature
+  firmaPorQue: >-
+    The signature is intact and matches the sender, but nobody checked that a
+    trusted authority issued the certificate. It tells you the message was not
+    changed, not who it really is from.
+  cifrado: Encrypted
+  cifradoPorQue: The message arrived encrypted and was opened with your certificate.
+  noSePudoAbrir: Encrypted, could not be opened
+  noSePudoAbrirPorQue: >-
+    It may be encrypted for another certificate, or with a method that is not
+    supported yet. If the message has a smime.p7m file, save it and open it with
+    another program.
+  cuerpoNoDisponible: >-
+    This message is encrypted or signed with S/MIME. The body is not available
+    in this view yet.
+
 deshacer:
   # `{0}` is the seconds left.
   enCamino: "Message on its way… {0}s"
