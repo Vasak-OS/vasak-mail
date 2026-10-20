@@ -462,6 +462,44 @@ describe('la ventana: de abrir un mensaje a responderlo', () => {
 		expect(document.body.textContent).not.toContain(es['redactar.respuestaACifrado']);
 	});
 
+	/** Lo que quedó escrito en el cuerpo de la respuesta que se abrió. */
+	function cuerpoDeLaRespuesta(): string {
+		return document.body.querySelector<HTMLTextAreaElement>('form textarea')?.value ?? '';
+	}
+
+	test('responder a un cifrado que no se pudo abrir no cita el cuerpo y avisa del cifrado', async () => {
+		await abrirYResponder(abierto({ smime: smime({ encryption: 'unavailable' }) }));
+
+		// Citarlo filtraría en claro lo que la vista nunca mostró.
+		expect(document.body.querySelector('form')).not.toBeNull();
+		expect(cuerpoDeLaRespuesta()).not.toContain('El texto secreto del mensaje');
+		expect(document.body.querySelector('form')?.textContent).toContain(
+			es['redactar.respuestaACifrado']
+		);
+	});
+
+	test('responder a un sobre pendiente (sin estado del servicio) no cita el cuerpo y avisa del cifrado', async () => {
+		await abrirYResponder(abierto({ adjuntos: [SOBRE] }));
+
+		expect(document.body.querySelector('form')).not.toBeNull();
+		expect(cuerpoDeLaRespuesta()).not.toContain('El texto secreto del mensaje');
+		expect(document.body.querySelector('form')?.textContent).toContain(
+			es['redactar.respuestaACifrado']
+		);
+	});
+
+	test('responder a un cifrado abierto o a un mensaje sin S/MIME sí cita el cuerpo', async () => {
+		await abrirYResponder(abierto({ smime: smime({ encryption: 'opened' }) }));
+		expect(cuerpoDeLaRespuesta()).toContain('El texto secreto del mensaje');
+
+		ventana?.unmount();
+		ventana = null;
+		document.body.innerHTML = '';
+
+		await abrirYResponder(abierto());
+		expect(cuerpoDeLaRespuesta()).toContain('El texto secreto del mensaje');
+	});
+
 	test('si el servicio rechaza el envío, el motivo queda dentro del formulario y no se cierra', async () => {
 		fallar('enviar_mensaje', 'sin certificado para firmar con ana@ejemplo.org');
 		await abrirYResponder(abierto());
