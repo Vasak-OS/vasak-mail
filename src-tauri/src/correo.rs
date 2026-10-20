@@ -1613,6 +1613,177 @@ mod tests {
         );
     }
 
+    // ── S/MIME ───────────────────────────────────────────────────────────────
+
+    /// El estado S/MIME que guardó el servicio llega a la ventana tal cual, y
+    /// sin que `valid` se pierda ni se invente.
+    #[test]
+    fn el_estado_smime_del_almacen_llega_a_la_ventana() {
+        let abierto = opened_from_store(mensaje_del_almacen(serde_json::json!({
+            "smime": {"valid": false, "signer": "ana@x.com", "encryption": "opened"}
+        })))
+        .unwrap();
+
+        assert_eq!(
+            abierto.smime,
+            Some(SmimeStatus {
+                valid: false,
+                signer: Some("ana@x.com".into()),
+                encryption: Some(Encryption::Opened),
+            })
+        );
+        let a_la_ventana = serde_json::to_value(&abierto).unwrap();
+        assert_eq!(
+            a_la_ventana["smime"],
+            serde_json::json!({"valid": false, "signer": "ana@x.com", "encryption": "opened"}),
+            "{a_la_ventana}"
+        );
+    }
+
+    /// Un mensaje que no venía ni firmado ni cifrado queda con `smime: None`, y
+    /// a la ventana le llega `null`: no hay distintivos que dibujar.
+    #[test]
+    fn un_mensaje_sin_smime_se_abre_sin_estado() {
+        let sin_clave = opened_from_store(mensaje_del_almacen(serde_json::json!({}))).unwrap();
+        let con_null =
+            opened_from_store(mensaje_del_almacen(serde_json::json!({"smime": null}))).unwrap();
+
+        assert_eq!(sin_clave.smime, None);
+        assert_eq!(con_null.smime, None);
+        assert!(serde_json::to_value(&sin_clave).unwrap()["smime"].is_null());
+    }
+
+    /// Un valor de `encryption` que el servicio agregue mañana no puede tirar la
+    /// apertura de **todos** los mensajes: serde falla la fila entera con una
+    /// variante desconocida. Se lee como `Other`, que la ventana trata como «no
+    /// se pudo abrir».
+    #[test]
+    fn un_cifrado_que_no_conocemos_se_lee_como_other() {
+        let abierto = opened_from_store(mensaje_del_almacen(serde_json::json!({
+            "smime": {"signer": null, "encryption": "pgp-futuro"}
+        })))
+        .unwrap();
+
+        let smime = abierto.smime.unwrap();
+        assert_eq!(smime.encryption, Some(Encryption::Other));
+        assert_eq!(smime.signer, None);
+        assert!(!smime.valid);
+    }
+
+    #[test]
+    fn los_estados_de_cifrado_conocidos_se_leen_y_viajan_en_snake_case() {
+        for (cable, esperado) in [
+            ("opened", Encryption::Opened),
+            ("unavailable", Encryption::Unavailable),
+            ("other", Encryption::Other),
+        ] {
+            let leido: SmimeStatus =
+                serde_json::from_value(serde_json::json!({"encryption": cable})).unwrap();
+            assert_eq!(leido.encryption, Some(esperado), "{cable}");
+            assert_eq!(
+                serde_json::to_value(esperado).unwrap(),
+                serde_json::json!(cable)
+            );
+        }
+    }
+
+    /// Un servicio de una versión anterior, o uno que manda sólo una parte, no
+    /// rompe la lectura: lo que falta es «no firmado, no cifrado, no válido».
+    #[test]
+    fn el_estado_smime_con_campos_faltantes_se_lee_con_los_valores_por_omision() {
+        let vacio: SmimeStatus = serde_json::from_str("{}").unwrap();
+        assert_eq!(vacio, SmimeStatus::default());
+
+        let solo_cifrado: SmimeStatus =
+            serde_json::from_str(r#"{"encryption":"unavailable"}"#).unwrap();
+        assert_eq!(solo_cifrado.encryption, Some(Encryption::Unavailable));
+        assert_eq!(solo_cifrado.signer, None);
+    }
+
+    /// `valid` no se descarta al leer: la ventana lo recibe aunque no lo use
+    /// para afirmar nada (ver `tools/smime.ts`).
+    #[test]
+    fn el_estado_smime_conserva_valid_de_ida_y_vuelta() {
+        let json = serde_json::json!({"valid": true, "signer": "ana@x.com", "encryption": null});
+        let leido: SmimeStatus = serde_json::from_value(json.clone()).unwrap();
+
+        assert!(leido.valid);
+        assert_eq!(serde_json::to_value(&leido).unwrap(), json);
+    }
+
+    /// La lectura en vivo no verifica ni descifra: su respuesta no trae `smime`
+    /// y el mensaje abierto queda sin estado, en vez de fallar.
+    #[test]
+    fn la_lectura_en_vivo_no_trae_estado_smime() {
+        let respuesta = r#"{"texto":"Hola","recortado":false,"adjuntos":[]}"#;
+        let abierto: Abierto = serde_json::from_str(respuesta).unwrap();
+
+        assert_eq!(abierto.smime, None);
+    }
+
+    /// Pedir firmar viaja como `firmar: true`, el nombre que espera el servicio,
+    /// y no como `sign`.
+    #[test]
+    fn el_borrador_que_se_firma_serializa_firmar_true() {
+        let borrador = Borrador {
+            para: vec!["juan@otro.com".into()],
+            sign: true,
+            ..Default::default()
+        };
+
+        let json = serde_json::to_value(&borrador).unwrap();
+        assert_eq!(json["firmar"], serde_json::json!(true), "{json}");
+        assert!(json.get("sign").is_none(), "{json}");
+    }
+
+    /// Sin pedirlo, el campo **no se serializa**: la cola vieja se reescribe
+    /// idéntica y un servicio anterior que no conoce `firmar` no lo ve.
+    #[test]
+    fn el_borrador_sin_firmar_no_serializa_el_campo() {
+        let borrador = Borrador {
+            para: vec!["juan@otro.com".into()],
+            ..Default::default()
+        };
+
+        let json = serde_json::to_value(&borrador).unwrap();
+        assert!(json.get("firmar").is_none(), "{json}");
+        assert!(json.get("sign").is_none(), "{json}");
+    }
+
+    /// La forma legacy —sin el campo— se lee con `sign: false` y se vuelve a
+    /// escribir idéntica.
+    #[test]
+    fn el_borrador_legacy_sin_firmar_queda_identico_de_ida_y_vuelta() {
+        let legacy = serde_json::json!({
+            "para": ["juan@otro.com"], "cc": [], "asunto": "Hola", "cuerpo": "Buenas.",
+            "en_respuesta_a": "", "referencias": []
+        });
+        let borrador: Borrador = serde_json::from_value(legacy.clone()).unwrap();
+
+        assert!(!borrador.sign);
+        assert_eq!(serde_json::to_value(&borrador).unwrap(), legacy);
+    }
+
+    /// Lo que manda la ventana: `firmar: true` se lee, `firmar: false` se
+    /// lee y no se escribe, y la ida y vuelta de uno firmado lo conserva.
+    #[test]
+    fn el_borrador_conserva_firmar_de_ida_y_vuelta() {
+        let firmado: Borrador =
+            serde_json::from_str(r#"{"para":["a@x.com"],"firmar":true}"#).unwrap();
+        assert!(firmado.sign);
+        let reescrito = serde_json::to_string(&firmado).unwrap();
+        assert!(reescrito.contains(r#""firmar":true"#), "{reescrito}");
+        assert_eq!(
+            serde_json::from_str::<Borrador>(&reescrito).unwrap(),
+            firmado
+        );
+
+        let apagado: Borrador =
+            serde_json::from_str(r#"{"para":["a@x.com"],"firmar":false}"#).unwrap();
+        assert!(!apagado.sign);
+        assert!(!serde_json::to_string(&apagado).unwrap().contains("firmar"));
+    }
+
     fn stored(uid: u64, mailbox: &str) -> StoredMessage {
         serde_json::from_value(serde_json::json!({
             "uid": uid, "mailbox_name": mailbox, "from_addr": "ana@x.com",
