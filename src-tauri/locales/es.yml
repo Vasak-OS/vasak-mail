@@ -152,6 +152,29 @@ redactar:
   # Se dice porque no es obvio y cambia lo que la persona espera del botón.
   seEncola: El mensaje se guarda y sale en cuanto se pueda. Podés cerrar la ventana.
   descartarBorrador: ¿Descartar lo que escribiste?
+  firmar: Firmar con S/MIME
+  firmarPorQue: Con tu certificado. Sin uno para esta cuenta, el mensaje no sale.
+  respuestaACifrado: Estás respondiendo a un mensaje cifrado. La respuesta cita su texto y sale sin cifrar.
+smime:
+  # `{0}` es la dirección del certificado que firmó. Nunca «válida»: lo que se
+  # comprobó es la firma, no que una autoridad respalde el certificado.
+  firmadoNoVerificado: "Firmado, no verificado — {0}"
+  firmaTitulo: Firma sin verificar
+  firmaPorQue: >-
+    La firma es íntegra y corresponde a quien lo mandó, pero no se comprobó que
+    una autoridad de confianza haya emitido el certificado. Sirve para saber que
+    el mensaje no se modificó, no para saber quién es de verdad.
+  cifrado: Cifrado
+  cifradoPorQue: El mensaje llegó cifrado y se abrió con tu certificado.
+  noSePudoAbrir: Cifrado, no se pudo abrir
+  noSePudoAbrirPorQue: >-
+    Puede estar cifrado para otro certificado, o con un método que todavía no se
+    admite. Si el mensaje trae un archivo smime.p7m, guardalo y abrilo con otro
+    programa.
+  cuerpoNoDisponible: >-
+    Este mensaje está cifrado o firmado con S/MIME. El cuerpo todavía no está
+    disponible en esta vista.
+
 deshacer:
   # `{0}` son los segundos que quedan.
   enCamino: "Mensaje en camino… {0} s"

@@ -104,6 +104,37 @@ pub struct Sanitized {
     pub recortado: bool,
 }
 
+/// Cómo quedó un mensaje cifrado después de intentar abrirlo al bajarlo.
+///
+/// `Other` existe para que un valor que el servicio agregue mañana no rompa la
+/// apertura de **todos** los mensajes: serde falla la fila entera con una
+/// variante desconocida. La ventana lo trata como «no se pudo abrir», que es lo
+/// conservador: no afirma que se abrió algo que no sabemos qué es.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Encryption {
+    Opened,
+    Unavailable,
+    #[serde(other)]
+    Other,
+}
+
+/// El estado S/MIME de un mensaje, tal como lo guarda el servicio. `None` en
+/// `Abierto` quiere decir que no venía ni firmado ni cifrado.
+///
+/// `valid` hoy es siempre `false` (la validación de confianza X.509 es un
+/// seguimiento del servicio), y la ventana **no lo usa para afirmar nada**.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct SmimeStatus {
+    #[serde(default)]
+    pub valid: bool,
+    /// El firmante, sólo cuando la firma cerró y liga al `From`.
+    #[serde(default)]
+    pub signer: Option<String>,
+    #[serde(default)]
+    pub encryption: Option<Encryption>,
+}
+
 /// Un mensaje abierto.
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Abierto {
@@ -141,6 +172,10 @@ pub struct Abierto {
     pub responder_a: String,
     #[serde(default)]
     pub nombre: String,
+    /// Si venía firmado o cifrado. Sólo lo trae el almacén: la lectura en vivo
+    /// no descifra ni verifica, y ahí queda `None`.
+    #[serde(default)]
+    pub smime: Option<SmimeStatus>,
 }
 
 /// Cuántos mensajes se piden del almacén por casilla: los mismos que mostraba
@@ -293,6 +328,8 @@ struct StoredMessage {
     html_body: Option<String>,
     #[serde(default)]
     truncated: bool,
+    #[serde(default)]
+    smime: Option<SmimeStatus>,
     #[serde(default)]
     attachments: Vec<StoredAttachment>,
 }
@@ -476,6 +513,7 @@ fn opened_from_store(m: StoredMessage) -> Option<Abierto> {
         referencias: Vec::new(),
         responder_a,
         nombre,
+        smime: m.smime,
     })
 }
 
@@ -766,6 +804,15 @@ pub struct Borrador {
     pub en_respuesta_a: String,
     #[serde(default)]
     pub referencias: Vec<String>,
+    /// Firmar el mensaje con S/MIME al salir. En el cable es `firmar`, como lo
+    /// llama el servicio. Si no se pide **no se serializa**: la cola vieja se
+    /// reescribe idéntica y el campo sólo aparece cuando de verdad se firma.
+    #[serde(default, skip_serializing_if = "is_false", rename = "firmar")]
+    pub sign: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// Un mensaje esperando salir.

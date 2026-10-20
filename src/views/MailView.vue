@@ -4,7 +4,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { onStoreChanged, onSyncStatus } from '@vasakgroup/plugin-vsk-store';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import { ActionButton, AlertMessage, EmptyState, ThemeIcon } from '@vasakgroup/vue-libvasak';
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import AccountsComponent from '@/components/mail/AccountsComponent.vue';
 import ComposeComponent from '@/components/mail/ComposeComponent.vue';
 import MessageComponent from '@/components/mail/MessageComponent.vue';
@@ -22,6 +22,7 @@ import { interpolar } from '@/tools/interpolar';
 import { aBorrador, type MailtoRequest } from '@/tools/mailto';
 import { panesOnScreen, visiblePane } from '@/tools/panes';
 import { responder as armarRespuesta } from '@/tools/responder';
+import { describeSmime } from '@/tools/smime';
 
 const { t, locale } = useI18n();
 const {
@@ -114,6 +115,18 @@ async function reclamarPermiso() {
 /** El borrador abierto, o `null` si no hay ninguno. */
 const redactando = ref<Borrador | null>(null);
 const esRespuesta = ref(false);
+/** Si lo que se responde venía cifrado. Se avisa en el redactor. */
+const respondeACifrado = ref(false);
+/**
+ * Por qué no salió lo que se acaba de mandar, para mostrarlo **en el
+ * redactor**. No es el `error` general: ése puede ser de otra cosa —una casilla
+ * que no se pudo leer— y mostrarlo ahí sería acusar al mensaje de algo ajeno.
+ */
+const errorDeEnvio = ref('');
+// Un redactor nuevo empieza sin el error del anterior.
+watch(redactando, () => {
+	errorDeEnvio.value = '';
+});
 /**
  * Desde qué cuenta se está escribiendo.
  *
@@ -142,6 +155,7 @@ function escribir() {
 	// correo con la identidad equivocada.
 	cuentaDelBorrador.value = combinada.value ? (cuentas.value[0]?.account_id ?? '') : elegida.value;
 	esRespuesta.value = false;
+	respondeACifrado.value = false;
 }
 
 /**
@@ -167,6 +181,7 @@ function abrirLoQuePidieron(pedido: MailtoRequest) {
 
 	redactando.value = borrador;
 	esRespuesta.value = false;
+	respondeACifrado.value = false;
 	avisoDeCopiaOculta.value = sinCopiaOculta;
 	// La cuenta se elige igual que al escribir a mano: en la combinada no hay
 	// ninguna elegida, y mandar «desde todas» no quiere decir nada.
@@ -225,6 +240,8 @@ function responderAlAbierto() {
 	// identidad de otra casilla — a alguien que le escribió a la primera.
 	cuentaDelBorrador.value = abierto.value.account_id;
 	esRespuesta.value = true;
+	respondeACifrado.value =
+		describeSmime(cuerpo.value.smime, cuerpo.value.adjuntos).encryption === 'opened';
 }
 
 /**
@@ -239,6 +256,7 @@ async function volverAAbrirLoQueSeMando() {
 	if (borrador) {
 		redactando.value = borrador;
 		esRespuesta.value = false;
+		respondeACifrado.value = false;
 	}
 }
 
@@ -246,8 +264,11 @@ async function enviarBorrador(borrador: Borrador, cuando: string) {
 	// La ventana se cierra **sólo si quedó guardado**. Un borrador que el
 	// servicio rechaza —una dirección mal escrita— tiene que seguir en pantalla
 	// con el error a la vista, o lo que se escribió se pierde.
+	errorDeEnvio.value = '';
 	if (await enviar(cuentaDelBorrador.value, borrador, cuando)) {
 		redactando.value = null;
+	} else {
+		errorDeEnvio.value = error.value;
 	}
 }
 
@@ -756,6 +777,8 @@ onUnmounted(() => {
         :enviando="enviando"
         :cuentas="cuentas"
         :cuenta="cuentaDelBorrador"
+        :error="errorDeEnvio"
+        :replies-to-encrypted="respondeACifrado"
         @elegir-cuenta="cuentaDelBorrador = $event"
         @enviar="enviarBorrador"
         @cerrar="redactando = null; avisoDeCopiaOculta = false" />

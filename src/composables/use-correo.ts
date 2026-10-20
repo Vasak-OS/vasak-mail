@@ -11,6 +11,7 @@ import { claveDe, combinados, esElMismo, TODAS } from '@/tools/bandeja';
 import { alcance, filtrados } from '@/tools/busqueda';
 import { noAntesDe, quedan } from '@/tools/deshacer';
 import type { Saneado } from '@/tools/formato';
+import type { SmimeStatus } from '@/tools/smime';
 import {
 	isStorePermissionDenied,
 	type ReaskOutcome,
@@ -114,6 +115,11 @@ export interface Abierto {
 	/** A dónde va la respuesta: el `Reply-To` si lo hay, el remitente si no. */
 	responder_a: string;
 	nombre: string;
+	/**
+	 * Si venía firmado o cifrado, o `null`/ausente si no. Sólo lo trae el almacén:
+	 * la lectura en vivo no verifica ni descifra. Ver `tools/smime.ts`.
+	 */
+	smime?: SmimeStatus | null;
 }
 
 /** Un archivo para pegar a un mensaje, ya leído. */
@@ -136,6 +142,11 @@ export interface Borrador {
 	referencias: string[];
 	/** Los archivos que van pegados, con su contenido. */
 	adjuntos?: AdjuntoParaMandar[];
+	/**
+	 * Firmar con S/MIME al salir. Se llama `firmar` porque es el nombre que
+	 * espera el servicio en el cable. Ausente o `false`: no se firma.
+	 */
+	firmar?: boolean;
 }
 
 /** Un mensaje esperando salir. */

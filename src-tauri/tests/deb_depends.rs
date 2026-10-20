@@ -8,7 +8,7 @@
 //! habla IMAP.
 //!
 //! Una entrada puede llevar su piso de versión con la sintaxis de Debian
-//! —`vasak-accounts (>= 0.10.0)`—; las pruebas miran el nombre de paquete.
+//! —`vasak-accounts (>= 0.52.0)`—; las pruebas miran el nombre de paquete.
 //!
 //! Lo que se declara se audita con `readelf -d … | grep NEEDED`, nunca con
 //! `ldd`. Estas pruebas no reemplazan esa auditoría: cuidan que no vuelva lo
@@ -134,14 +134,15 @@ fn estan_los_programas_que_se_usan_sin_enlazarlos() {
 }
 
 /// El piso de versión del servicio es el contrato de D-Bus, el mismo que la
-/// receta de Arch: con uno anterior falta `GetAttachment` y guardar un adjunto
-/// recibido no tiene a quién pedirle el archivo.
+/// receta de Arch: con uno anterior `GetMessage` no trae el estado S/MIME
+/// (0.52.0) y `SendMessage` ignora `firmar`, o sea que un mensaje cifrado se ve
+/// vacío y el que se pidió firmar sale sin firma.
 #[test]
 fn el_servicio_de_cuentas_lleva_su_piso_de_version() {
     assert!(
         deb_entries()
             .iter()
-            .any(|entry| entry == "vasak-accounts (>= 0.10.0)"),
-        "vasak-accounts tiene que ir con «(>= 0.10.0)», como en la receta de Arch"
+            .any(|entry| entry == "vasak-accounts (>= 0.52.0)"),
+        "vasak-accounts tiene que ir con «(>= 0.52.0)», como en la receta de Arch"
     );
 }
