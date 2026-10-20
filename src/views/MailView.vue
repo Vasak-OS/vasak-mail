@@ -204,11 +204,13 @@ function responderAlAbierto() {
 			)
 		: '';
 	const encabezado = interpolar(t('redactar.citado'), fecha, abierto.value.de);
+	const vista = describeSmime(cuerpo.value.smime, cuerpo.value.adjuntos);
 
 	const respuesta = armarRespuesta(
 		{
 			asunto: abierto.value.asunto,
-			texto: cuerpo.value.texto,
+			// No citar un cuerpo que la vista oculta: sería filtrar en claro lo que la persona nunca vio.
+			texto: vista.bodyHidden ? '' : cuerpo.value.texto,
 			de: abierto.value.direccion,
 			responder_a: cuerpo.value.responder_a,
 			fecha: abierto.value.fecha,
@@ -240,8 +242,7 @@ function responderAlAbierto() {
 	// identidad de otra casilla — a alguien que le escribió a la primera.
 	cuentaDelBorrador.value = abierto.value.account_id;
 	esRespuesta.value = true;
-	respondeACifrado.value =
-		describeSmime(cuerpo.value.smime, cuerpo.value.adjuntos).encryption === 'opened';
+	respondeACifrado.value = vista.encryption !== null;
 }
 
 /**
