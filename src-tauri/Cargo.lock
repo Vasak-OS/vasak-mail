@@ -4494,13 +4494,14 @@ dependencies = [
 
 [[package]]
 name = "vasak-mail"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "base64 0.23.1",
  "chrono",
  "dirs 7.0.0",
  "futures-util",
  "gtk",
+ "rustix",
  "serde",
  "serde_json",
  "serde_yaml",

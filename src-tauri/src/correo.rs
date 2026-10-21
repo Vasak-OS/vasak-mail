@@ -20,6 +20,7 @@
 //! Lo que llega acá igual **es texto que escribió cualquiera**: se muestra, no se
 //! interpreta. Nada de esto se convierte en HTML ni se ejecuta.
 
+use std::os::fd::OwnedFd;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -871,6 +872,124 @@ pub async fn descartar(id: &str) -> Result<(), String> {
     llamar_sin_respuesta("DiscardOutgoing", &(id,))
         .await
         .map_err(|e| format!("no se pudo descartar: {e}"))
+}
+
+// ── Identidad S/MIME ─────────────────────────────────────────────────────────
+//
+// El certificado y su clave los guarda el sincronizador (en `vasak-keyring`),
+// nunca esta ventana. Lo único que cruza el bus son dos secretos —el `.p12` y la
+// contraseña que lo abre— y cada uno va en su propio **memfd sellado**: memoria
+// que el servicio puede leer pero que ya nadie, ni esta ventana después, puede
+// cambiar. El servicio exige el sello de escritura y rebobina el fd para leerlo.
+
+/// El estado de la identidad S/MIME de una cuenta, tal como lo publica
+/// `GetSmimeIdentity`. Sin identidad, `present` es `false` y los demás `None`.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct EstadoSmime {
+    #[serde(default)]
+    pub present: bool,
+    #[serde(default)]
+    pub email: Option<String>,
+    #[serde(default)]
+    pub not_after: Option<String>,
+}
+
+/// Un memfd de sólo lectura con `bytes` adentro, para pasarle un secreto al
+/// sincronizador por el bus.
+///
+/// El servicio exige `F_SEAL_WRITE`: sin él rechaza el fd como `Malformed`, y lo
+/// mismo si el fd es un pipe, un socket o un archivo regular. Sellar también
+/// contra crecer, encoger y sellar de nuevo deja la memoria fija: lo que el
+/// servicio lee es exactamente lo que se escribió acá. No se rebobina —el
+/// servicio busca el inicio antes de leer—.
+pub(crate) fn sealed_memfd(bytes: &[u8]) -> Result<OwnedFd, String> {
+    use std::io::Write;
+
+    use rustix::fs::{fcntl_add_seals, memfd_create, MemfdFlags, SealFlags};
+
+    let fd = memfd_create(
+        "vasak-mail-smime",
+        MemfdFlags::CLOEXEC | MemfdFlags::ALLOW_SEALING,
+    )
+    .map_err(|e| format!("no se pudo reservar memoria sellada: {e}"))?;
+    let mut archivo = std::fs::File::from(fd);
+    archivo
+        .write_all(bytes)
+        .map_err(|e| format!("no se pudo escribir la memoria sellada: {e}"))?;
+    let fd = OwnedFd::from(archivo);
+    fcntl_add_seals(
+        &fd,
+        SealFlags::WRITE | SealFlags::SHRINK | SealFlags::GROW | SealFlags::SEAL,
+    )
+    .map_err(|e| format!("no se pudo sellar la memoria: {e}"))?;
+    Ok(fd)
+}
+
+/// El código corto y estable de un fallo al importar una identidad S/MIME, para
+/// que la ventana elija el mensaje en el idioma de la sesión.
+///
+/// Espejo de [`describe`]/[`denied_by_store`]: clasifica por el nombre del error
+/// de D-Bus que trae el servicio (`ar.net.vasak.os.AccountsSync.WrongPassword` y
+/// los demás). Un error sin un nombre conocido cae en `Failed`, que la ventana
+/// muestra como mensaje genérico.
+pub(crate) fn smime_error_code(error: &StoreError) -> &'static str {
+    let StoreError::Store {
+        name: Some(name), ..
+    } = error
+    else {
+        return "Failed";
+    };
+    for codigo in [
+        "WrongPassword",
+        "TooBig",
+        "AddressMismatch",
+        "UnsupportedLegacy",
+        "Malformed",
+        "KeyringLocked",
+    ] {
+        if name.contains(codigo) {
+            return codigo;
+        }
+    }
+    "Failed"
+}
+
+/// Importa una identidad S/MIME en una cuenta: el `.p12` y la contraseña, cada
+/// uno en su memfd sellado ([`sealed_memfd`]). Devuelve el [`StoreError`] crudo
+/// para que el comando lo clasifique con [`smime_error_code`].
+///
+/// Los dos fds van por `call_on`, que **preserva los descriptores**: zbus los
+/// serializa como `h` y los adjunta al mensaje. Los `OwnedFd` los tiene el
+/// llamador y se cierran cuando él los suelta, después de este `await`.
+pub async fn importar_identidad_smime(
+    account_id: &str,
+    p12_fd: &OwnedFd,
+    password_fd: &OwnedFd,
+) -> Result<(), StoreError> {
+    use zbus::zvariant::Fd;
+
+    store()
+        .map_err(|_| StoreError::NotRunning)?
+        .call_on::<_, ()>(
+            RUTA,
+            INTERFAZ,
+            "ImportSmimeIdentity",
+            &(account_id, Fd::from(p12_fd), Fd::from(password_fd)),
+        )
+        .await
+}
+
+/// El estado de la identidad S/MIME de una cuenta.
+pub async fn estado_identidad_smime(account_id: &str) -> Result<EstadoSmime, String> {
+    let json = llamar("GetSmimeIdentity", &(account_id,)).await?;
+    serde_json::from_str(&json).map_err(|e| format!("no se pudo leer el estado S/MIME: {e}"))
+}
+
+/// Quita la identidad S/MIME de una cuenta.
+pub async fn quitar_identidad_smime(account_id: &str) -> Result<(), String> {
+    llamar_sin_respuesta("RemoveSmimeIdentity", &(account_id,))
+        .await
+        .map_err(|e| format!("no se pudo quitar la identidad S/MIME: {e}"))
 }
 
 /// El evento que ve la ventana cuando llega correo.

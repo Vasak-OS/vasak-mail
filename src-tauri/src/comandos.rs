@@ -5,7 +5,7 @@
 use tauri::Manager;
 
 use crate::correo::{
-    self, Abierto, AdjuntoParaMandar, Borrador, Casilla, Cuenta, Resumen, Saliente,
+    self, Abierto, AdjuntoParaMandar, Borrador, Casilla, Cuenta, EstadoSmime, Resumen, Saliente,
 };
 use crate::mailto::{MailtoDraft, PendingMailto};
 use crate::store_access;
@@ -138,6 +138,44 @@ pub fn take_pending_mailto(app: tauri::AppHandle) -> Option<MailtoDraft> {
     let mut guardado = estado.0.lock().ok()?;
 
     guardado.take()
+}
+
+/// Importa una identidad S/MIME en una cuenta, desde un `.p12` que eligió la
+/// persona y la contraseña que lo abre.
+///
+/// El `.p12` lo lee **esta aplicación** —no el servicio, que correría como la
+/// persona y podría leer cualquier archivo suyo: la ruta la eligió ella en el
+/// diálogo del sistema—. Nunca se copia a un temporal: va del disco al memfd
+/// sellado y de ahí al bus. Los dos [`std::os::fd::OwnedFd`] viven hasta después
+/// del `await` y se cierran por `drop` al salir, también en el camino de error.
+///
+/// **La contraseña no se registra en ningún lado.** Se sella en un memfd y se
+/// deja caer de alcance.
+#[tauri::command]
+pub async fn importar_identidad_smime(
+    account_id: String,
+    ruta: String,
+    contrasena: String,
+) -> Result<(), String> {
+    let p12 = std::fs::read(&ruta).map_err(|e| format!("no se pudo leer el certificado: {e}"))?;
+    let p12_fd = correo::sealed_memfd(&p12)?;
+    let password_fd = correo::sealed_memfd(contrasena.as_bytes())?;
+    correo::importar_identidad_smime(&account_id, &p12_fd, &password_fd)
+        .await
+        .map_err(|e| correo::smime_error_code(&e).into())
+}
+
+/// El estado de la identidad S/MIME de una cuenta: si hay una, de qué dirección
+/// es y cuándo vence.
+#[tauri::command]
+pub async fn estado_identidad_smime(account_id: String) -> Result<EstadoSmime, String> {
+    correo::estado_identidad_smime(&account_id).await
+}
+
+/// Quita la identidad S/MIME de una cuenta.
+#[tauri::command]
+pub async fn quitar_identidad_smime(account_id: String) -> Result<(), String> {
+    correo::quitar_identidad_smime(&account_id).await
 }
 
 /// Vuelve a pedir el permiso para leer el correo del almacén.
