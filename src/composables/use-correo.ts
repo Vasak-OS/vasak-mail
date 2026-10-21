@@ -701,18 +701,22 @@ export function useCorreo() {
 	 *
 	 * Devuelve qué pasó para que la ventana lo diga: `done`, `keptOriginal` (la
 	 * copia llegó pero el original quedó, en un servidor sin `MOVE` ni
-	 * `UIDPLUS`), `noArchive` (la cuenta no tiene carpeta de archivo) o
-	 * `failed` (el motivo queda en `error`, por ejemplo una cuenta sin papelera).
+	 * `UIDPLUS`: el mensaje sigue en la carpeta y por eso no se saca de la
+	 * lista), `noArchive` (la cuenta no tiene carpeta de archivo), `busy` (ya hay
+	 * un pedido en vuelo para ese mensaje: no es un fallo) o `failed` (el motivo
+	 * queda en `error`, por ejemplo una cuenta sin papelera).
 	 */
 	async function removeFromMailbox(
 		mensaje: Resumen,
 		how: 'archive' | 'delete'
-	): Promise<'done' | 'keptOriginal' | 'noArchive' | 'failed'> {
+	): Promise<'done' | 'keptOriginal' | 'noArchive' | 'busy' | 'failed'> {
 		const clave = claveDe(mensaje);
 		if (marcando.has(clave)) {
-			return 'failed';
+			return 'busy';
 		}
 		marcando.add(clave);
+		// Lo que quedó a la vista del pedido anterior no es de éste.
+		error.value = '';
 
 		try {
 			let outcome: string;
@@ -740,11 +744,14 @@ export function useCorreo() {
 				});
 			}
 
+			if (outcome === 'sin_borrar_el_viejo') {
+				return 'keptOriginal';
+			}
 			mensajes.value = mensajes.value.filter((m) => !esElMismo(m, mensaje));
 			if (esElMismo(abierto.value, mensaje)) {
 				cerrar();
 			}
-			return outcome === 'sin_borrar_el_viejo' ? 'keptOriginal' : 'done';
+			return 'done';
 		} catch (e) {
 			error.value = String(e);
 			return 'failed';

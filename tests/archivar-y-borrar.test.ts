@@ -85,9 +85,34 @@ describe('archivar', () => {
 
 		expect(await correo.removeFromMailbox(resumen('ana', 1), 'archive')).toBe('keptOriginal');
 	});
+
+	test('si el original quedó, el mensaje sigue en la lista y abierto', async () => {
+		contestar('listar_cuentas', [{ account_id: 'ana', display_name: 'Ana', sin_leer: 0, error: '' }]);
+		contestar('listar_mensajes', [resumen('ana', 1), resumen('ana', 2)]);
+		contestar('listar_casillas', [carpeta('Archivo', 'archivo')]);
+		contestar('move_message', 'sin_borrar_el_viejo');
+		const correo = useCorreo();
+		await correo.cargarCuentas();
+		await correo.abrir(correo.mensajes.value.find((m) => m.uid === 1) as Resumen);
+
+		await correo.removeFromMailbox(resumen('ana', 1), 'archive');
+
+		expect(correo.mensajes.value.map((m) => m.uid)).toEqual([1, 2]);
+		expect(correo.abierto.value?.uid).toBe(1);
+	});
 });
 
 describe('borrar', () => {
+	test('un pedido nuevo borra el error que dejó el anterior', async () => {
+		contestar('delete_message', '"entero"');
+		const correo = useCorreo();
+		correo.error.value = 'lo de antes';
+
+		await correo.removeFromMailbox(resumen('ana', 3), 'delete');
+
+		expect(correo.error.value).toBe('');
+	});
+
 	test('pide la papelera con la cuenta, la carpeta y el uid del mensaje', async () => {
 		contestar('delete_message', '"entero"');
 		const correo = useCorreo();
@@ -162,7 +187,9 @@ describe('uno por vez', () => {
 		const primero = correo.removeFromMailbox(m, 'delete');
 		const segundo = correo.removeFromMailbox(m, 'delete');
 
-		expect(await segundo).toBe('failed');
+		// No es un fallo: no deja ningún error a la vista.
+		expect(await segundo).toBe('busy');
+		expect(correo.error.value).toBe('');
 		expect(await primero).toBe('done');
 		expect(borrados()).toHaveLength(1);
 	});
