@@ -2133,6 +2133,33 @@ mod tests {
         async fn list_messages(&self, _account_id: String, _casilla: String) -> String {
             r#"[{"uid":99,"de":"Servidor","direccion":"srv@ejemplo.com","asunto":"Del servidor","fecha":"2026-09-20T10:00:00Z","sin_leer":false,"con_adjuntos":false}]"#.to_string()
         }
+
+        /// Contesta qué recibió, para ver que llegan los cuatro datos en orden.
+        async fn move_message(
+            &self,
+            account_id: String,
+            mailbox: String,
+            uid: u32,
+            destination: String,
+        ) -> String {
+            assert_eq!(
+                (account_id.as_str(), mailbox.as_str(), uid),
+                ("a", "INBOX", 7)
+            );
+            if destination == "Archivo" {
+                "\"entero\"".into()
+            } else {
+                "\"sin_borrar_el_viejo\"".into()
+            }
+        }
+
+        async fn delete_message(&self, account_id: String, mailbox: String, uid: u32) -> String {
+            assert_eq!(
+                (account_id.as_str(), mailbox.as_str(), uid),
+                ("a", "INBOX", 7)
+            );
+            "\"entero\"".into()
+        }
     }
 
     /// El camino de lectura del correo, de punta a punta por el cliente del
@@ -2176,6 +2203,21 @@ mod tests {
         let desde_servidor = mensajes("a", "INBOX").await.unwrap();
         assert_eq!(desde_servidor.len(), 1);
         assert_eq!(desde_servidor[0].asunto, "Del servidor");
+
+        // Mover y borrar van al sincronizador en vivo por los comandos, con lo
+        // que contesta traducido a texto.
+        assert_eq!(
+            crate::comandos::move_message("a".into(), "INBOX".into(), 7, "Archivo".into()).await,
+            Ok("entero".to_string())
+        );
+        assert_eq!(
+            crate::comandos::move_message("a".into(), "INBOX".into(), 7, "Viejo".into()).await,
+            Ok("sin_borrar_el_viejo".to_string())
+        );
+        assert_eq!(
+            crate::comandos::delete_message("a".into(), "INBOX".into(), 7).await,
+            Ok("entero".to_string())
+        );
 
         // Con el «no» al almacén no se va al servidor: se dice «sin permiso».
         *mode.lock().unwrap() = "denied";
