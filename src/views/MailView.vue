@@ -660,6 +660,7 @@ onUnmounted(() => {
         @cerrar="mostrandoAtajos = false" />
       <PreferencesComponent
         :abierto="mostrandoPreferencias"
+        :cuentas="cuentas"
         @cerrar="mostrandoPreferencias = false" />
 
       <!-- La ventana para arrepentirse. Va sobre todo lo demás porque es lo

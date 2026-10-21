@@ -19,7 +19,7 @@ import {
 	TextArea,
 	TextInput,
 } from '@vasakgroup/vue-libvasak';
-import { computed, nextTick, onMounted, ref, useTemplateRef } from 'vue';
+import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from 'vue';
 import type { AdjuntoParaMandar, Borrador, Cuenta } from '@/composables/use-correo';
 import { elegida, momentos, paraElServicio } from '@/tools/programar';
 import { direcciones } from '@/tools/responder';
@@ -64,6 +64,30 @@ const asunto = ref(props.inicial.asunto);
 const cuerpo = ref(props.inicial.cuerpo);
 /** Firmar con S/MIME. Apagado por omisión: firmar es una decisión por mensaje. */
 const sign = ref(props.inicial.firmar ?? false);
+
+/**
+ * Si la cuenta de la que sale tiene certificado para firmar.
+ *
+ * Es ayuda y no control: el servicio rechaza igual un envío firmado sin
+ * certificado. Por eso falla abierto: si la consulta no responde, el interruptor
+ * queda como estaba y el servicio dice el motivo al enviar.
+ */
+const canSign = ref(true);
+
+async function refreshCanSign() {
+	try {
+		const state = await invoke<{ present: boolean }>('estado_identidad_smime', {
+			accountId: props.cuenta,
+		});
+		canSign.value = state?.present !== false;
+	} catch {
+		canSign.value = true;
+	}
+	if (!canSign.value) sign.value = false;
+}
+
+onMounted(refreshCanSign);
+watch(() => props.cuenta, refreshCanSign);
 
 /**
  * De qué cuenta sale, siempre a la vista.
@@ -334,7 +358,8 @@ function cerrar() {
         <SwitchRow
           v-model="sign"
           :label="t('redactar.firmar')"
-          :description="t('redactar.firmarPorQue')"
+          :description="canSign ? t('redactar.firmarPorQue') : t('redactar.firmarSinCertificado')"
+          :disabled="!canSign"
           icon="application-certificate-symbolic"
           icon-type="symbol" />
 

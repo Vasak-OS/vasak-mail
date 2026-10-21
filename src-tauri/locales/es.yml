@@ -154,6 +154,7 @@ redactar:
   descartarBorrador: ¿Descartar lo que escribiste?
   firmar: Firmar con S/MIME
   firmarPorQue: Con tu certificado. Sin uno para esta cuenta, el mensaje no sale.
+  firmarSinCertificado: Importá el certificado de esta cuenta en Preferencias para poder firmar.
   respuestaACifrado: Estás respondiendo a un mensaje cifrado. La respuesta cita su texto y sale sin cifrar.
 smime:
   # `{0}` es la dirección del certificado que firmó. Nunca «válida»: lo que se
@@ -174,6 +175,27 @@ smime:
   cuerpoNoDisponible: >-
     Este mensaje está cifrado o firmado con S/MIME. El cuerpo todavía no está
     disponible en esta vista.
+  # Importar la identidad (certificado con su clave) de cada cuenta, en Preferencias.
+  seccion: S/MIME
+  seccionPorQue: >-
+    El certificado con su clave privada, en un archivo .p12 o .pfx. Se guarda
+    en el sistema, cifrado, y sirve para firmar los mensajes de esa cuenta.
+  elegir: Elegir archivo .p12
+  elegirTitulo: Elegir el certificado
+  filtro: Certificado (.p12, .pfx)
+  contrasena: Contraseña del archivo
+  importar: Importar
+  quitar: Quitar
+  ausente: Esta cuenta todavía no tiene un certificado para firmar.
+  # `{0}` es la fecha en que vence el certificado.
+  vence: "vence el {0}"
+  errorWrongPassword: La contraseña no abre el certificado.
+  errorTooBig: El archivo supera el tamaño permitido (8 MiB).
+  errorAddressMismatch: El certificado no es de la dirección de esta cuenta.
+  errorUnsupportedLegacy: El .p12 usa cifrado heredado; reexportalo sin la opción -legacy.
+  errorMalformed: No se pudo leer el .p12 (¿no es un PFX o le falta la clave?).
+  errorKeyringLocked: El llavero está bloqueado; desbloquealo y probá de nuevo.
+  errorFailed: No se pudo completar la operación con el certificado.
 
 deshacer:
   # `{0}` son los segundos que quedan.
