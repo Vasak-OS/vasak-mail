@@ -157,6 +157,19 @@ pub async fn importar_identidad_smime(
     ruta: String,
     contrasena: String,
 ) -> Result<(), String> {
+    // Antes de leerlo entero a memoria: que sea un archivo y no pese de más. Si
+    // no, un fifo o un archivo enorme mal elegido trabaría la ventana antes de
+    // que el servicio aplique su propio tope. Mismo máximo que el servidor
+    // (`MAX_SMIME_PKCS12_BYTES`): un `.p12` son kilobytes.
+    const MAXIMO: u64 = 8 * 1024 * 1024;
+    let datos =
+        std::fs::metadata(&ruta).map_err(|e| format!("no se pudo leer el certificado: {e}"))?;
+    if !datos.is_file() {
+        return Err("Malformed".into());
+    }
+    if datos.len() > MAXIMO {
+        return Err("TooBig".into());
+    }
     let p12 = std::fs::read(&ruta).map_err(|e| format!("no se pudo leer el certificado: {e}"))?;
     let p12_fd = correo::sealed_memfd(&p12)?;
     let password_fd = correo::sealed_memfd(contrasena.as_bytes())?;
