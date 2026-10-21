@@ -629,6 +629,30 @@ pub async fn open_message(
 /// panel: el sincronizador trae todo con `BODY.PEEK`, que mira sin marcar. Que
 /// pasar por encima de un mensaje con las flechas te vacíe el contador de sin
 /// leer es de los errores más molestos que puede tener un cliente de correo.
+/// Cómo terminó un movimiento en el servidor: `entero`, o `sin_borrar_el_viejo`
+/// si la copia llegó al destino pero el original no se pudo sacar de donde
+/// estaba (servidor sin `MOVE` ni `UIDPLUS`).
+fn outcome_of(json: &str) -> Result<String, String> {
+    serde_json::from_str(json).map_err(|e| format!("respuesta inesperada del sincronizador: {e}"))
+}
+
+/// Mueve un mensaje a otra carpeta del servidor (archivar es esto, hacia la
+/// carpeta con uso `archivo`).
+pub async fn move_message(
+    account_id: &str,
+    mailbox: &str,
+    uid: u32,
+    destination: &str,
+) -> Result<String, String> {
+    outcome_of(&llamar("MoveMessage", &(account_id, mailbox, uid, destination)).await?)
+}
+
+/// Lo manda a la papelera del servidor. Si la cuenta no tiene papelera, el
+/// sincronizador falla en vez de borrar para siempre.
+pub async fn delete_message(account_id: &str, mailbox: &str, uid: u32) -> Result<String, String> {
+    outcome_of(&llamar("DeleteMessage", &(account_id, mailbox, uid)).await?)
+}
+
 pub async fn marcar_leido(account_id: &str, casilla: &str, uid: u32) -> Result<(), String> {
     llamar_sin_respuesta("MarkRead", &(account_id, casilla, uid))
         .await
@@ -2159,5 +2183,20 @@ mod tests {
             mensajes("a", "INBOX").await,
             Err(STORE_PERMISSION_DENIED.to_string())
         );
+    }
+
+    #[test]
+    fn el_resultado_entero_se_lee_como_texto() {
+        assert_eq!(outcome_of("\"entero\"").unwrap(), "entero");
+        assert_eq!(
+            outcome_of("\"sin_borrar_el_viejo\"").unwrap(),
+            "sin_borrar_el_viejo"
+        );
+    }
+
+    #[test]
+    fn una_respuesta_que_no_es_json_se_rechaza() {
+        assert!(outcome_of("entero").is_err());
+        assert!(outcome_of("").is_err());
     }
 }

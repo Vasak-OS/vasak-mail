@@ -19,6 +19,8 @@ export type Accion =
 	| 'abrir'
 	| 'volver'
 	| 'responder'
+	| 'archive'
+	| 'delete'
 	| 'redactar'
 	| 'actualizar'
 	| 'irALaEntrada'
@@ -46,9 +48,10 @@ export interface Pulsacion {
  * Gmail y no Vim porque es el que más gente ya conoce: quien nunca vio un atajo
  * de correo no gana nada con ninguno de los dos, y quien vio alguno vio éste.
  *
- * **Sólo están las que hacen algo.** Archivar, borrar, destacar y marcar como no
- * leído son del juego de Gmail y todavía no existen acá; declararlas haría que
- * la ayuda prometa teclas que no contestan, que es peor que no tener ayuda.
+ * **Sólo están las que hacen algo.** Destacar y marcar como no leído son del
+ * juego de Gmail y todavía no existen acá; declararlas haría que la ayuda
+ * prometa teclas que no contestan, que es peor que no tener ayuda. Archivar
+ * (`e`) y borrar (`#`) entraron cuando el sincronizador supo mover.
  * `buscar` entró cuando entró el buscador, que es cuando correspondía.
  */
 export const GMAIL: Readonly<Record<string, Accion>> = Object.freeze({
@@ -59,6 +62,8 @@ export const GMAIL: Readonly<Record<string, Accion>> = Object.freeze({
 	Enter: 'abrir',
 	u: 'volver',
 	r: 'responder',
+	e: 'archive',
+	'#': 'delete',
 	c: 'redactar',
 	'.': 'actualizar',
 	'g i': 'irALaEntrada',
@@ -85,6 +90,9 @@ export const VIM: Readonly<Record<string, Accion>> = Object.freeze({
 	Enter: 'abrir',
 	h: 'volver',
 	r: 'responder',
+	e: 'archive',
+	// `dd` es «borrar la línea» en Vim: la misma idea sobre el mensaje.
+	'd d': 'delete',
 	c: 'redactar',
 	'.': 'actualizar',
 	'g g': 'irALaEntrada',

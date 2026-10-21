@@ -28,6 +28,8 @@ atajos:
   abrir: Abrir el primero
   volver: Volver a la lista
   responder: Responder
+  archive: Archivar
+  delete: Mandar a la papelera
   redactar: Escribir uno nuevo
   actualizar: Actualizar
   irALaEntrada: Ir a la bandeja de entrada
@@ -75,6 +77,10 @@ lista:
   conAdjuntos: Trae un archivo
   noLeido: Sin leer
 mensaje:
+  archivar: Archivar
+  borrar: Borrar
+  sinArchivo: "Esta cuenta no tiene una carpeta de archivo en el servidor."
+  quedoElOriginal: "Se copió, pero el servidor no dejó sacar el original de la carpeta: puede aparecer en las dos."
   guardar: Guardar
   guardando: Guardando…
   guardadoEn: "Guardado en {0}"

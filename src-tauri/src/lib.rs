@@ -71,6 +71,8 @@ pub fn run() {
             comandos::traer_imagen,
             comandos::open_message,
             comandos::marcar_leido,
+            comandos::move_message,
+            comandos::delete_message,
             comandos::enviar_mensaje,
             comandos::leer_adjunto,
             comandos::guardar_adjunto,

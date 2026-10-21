@@ -692,6 +692,68 @@ export function useCorreo() {
 	}
 
 	/**
+	 * Saca un mensaje de su carpeta en el servidor: lo archiva —lo mueve a la
+	 * carpeta con uso `archivo`— o lo manda a la papelera.
+	 *
+	 * Como `marcarLeido`, todo sale del mensaje y no de lo elegido ahora, y uno
+	 * por vez: dos teclazos rápidos moverían dos veces el mismo `uid`, y el
+	 * segundo le caería a lo que el servidor tenga con ese número en la carpeta.
+	 *
+	 * Devuelve qué pasó para que la ventana lo diga: `done`, `keptOriginal` (la
+	 * copia llegó pero el original quedó, en un servidor sin `MOVE` ni
+	 * `UIDPLUS`), `noArchive` (la cuenta no tiene carpeta de archivo) o
+	 * `failed` (el motivo queda en `error`, por ejemplo una cuenta sin papelera).
+	 */
+	async function removeFromMailbox(
+		mensaje: Resumen,
+		how: 'archive' | 'delete'
+	): Promise<'done' | 'keptOriginal' | 'noArchive' | 'failed'> {
+		const clave = claveDe(mensaje);
+		if (marcando.has(clave)) {
+			return 'failed';
+		}
+		marcando.add(clave);
+
+		try {
+			let outcome: string;
+			if (how === 'archive') {
+				// Las carpetas **de la cuenta del mensaje**: en la combinada las que
+				// están a la vista no son de ninguna.
+				const deLaCuenta = await invoke<Casilla[]>('listar_casillas', {
+					accountId: mensaje.account_id,
+				});
+				const archivo = deLaCuenta.find((c) => c.uso === 'archivo' && c.seleccionable);
+				if (!archivo) {
+					return 'noArchive';
+				}
+				outcome = await invoke<string>('move_message', {
+					accountId: mensaje.account_id,
+					mailbox: mensaje.casilla,
+					uid: mensaje.uid,
+					destination: archivo.ruta,
+				});
+			} else {
+				outcome = await invoke<string>('delete_message', {
+					accountId: mensaje.account_id,
+					mailbox: mensaje.casilla,
+					uid: mensaje.uid,
+				});
+			}
+
+			mensajes.value = mensajes.value.filter((m) => !esElMismo(m, mensaje));
+			if (esElMismo(abierto.value, mensaje)) {
+				cerrar();
+			}
+			return outcome === 'sin_borrar_el_viejo' ? 'keptOriginal' : 'done';
+		} catch (e) {
+			error.value = String(e);
+			return 'failed';
+		} finally {
+			marcando.delete(clave);
+		}
+	}
+
+	/**
 	 * Pone el mensaje en la cola.
 	 *
 	 * Vuelve `true` si quedó guardado. El envío pasa después: lo que este
@@ -845,5 +907,6 @@ export function useCorreo() {
 		abrir,
 		cerrar,
 		marcarLeido,
+		removeFromMailbox,
 	};
 }

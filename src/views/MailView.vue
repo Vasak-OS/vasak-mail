@@ -61,6 +61,7 @@ const {
 	abrir,
 	cerrar,
 	marcarLeido,
+	removeFromMailbox,
 	enviar,
 	enCamino,
 	deshacerEnvio,
@@ -194,6 +195,23 @@ function abrirLoQuePidieron(pedido: MailtoRequest) {
  * El encabezado de la cita se arma acá, que es donde hay traducciones y donde
  * se sabe en qué idioma está la sesión.
  */
+/**
+ * Archiva o borra el mensaje abierto. Lo que no salió del todo se dice: una
+ * cuenta sin carpeta de archivo, o un servidor que dejó la copia pero no sacó
+ * el original. El error de verdad ya lo pone `removeFromMailbox`.
+ */
+async function removeOpen(how: 'archive' | 'delete') {
+	if (!abierto.value) {
+		return;
+	}
+	const outcome = await removeFromMailbox(abierto.value, how);
+	if (outcome === 'noArchive') {
+		error.value = t('mensaje.sinArchivo');
+	} else if (outcome === 'keptOriginal') {
+		error.value = t('mensaje.quedoElOriginal');
+	}
+}
+
 function responderAlAbierto() {
 	if (!abierto.value || !cuerpo.value) {
 		return;
@@ -443,6 +461,12 @@ function alApretar(evento: KeyboardEvent) {
 			break;
 		case 'responder':
 			responderAlAbierto();
+			break;
+		case 'archive':
+			removeOpen('archive');
+			break;
+		case 'delete':
+			removeOpen('delete');
 			break;
 		case 'redactar':
 			escribir();
@@ -768,6 +792,8 @@ onUnmounted(() => {
           :cargando="cargandoMensaje"
           @marcar-leido="marcarLeido"
           @responder="responderAlAbierto"
+          @archive="removeOpen('archive')"
+          @delete="removeOpen('delete')"
           @volver="volverALaLista" />
       </div>
 

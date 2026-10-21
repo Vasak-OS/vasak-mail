@@ -29,7 +29,13 @@ const props = defineProps<{
 // El mensaje entero y no su `uid`: quien lo reciba necesita saber de qué cuenta
 // y de qué carpeta salió, porque en la bandeja combinada el número solo no
 // alcanza para encontrarlo. Ver `tools/bandeja.ts`.
-const emit = defineEmits<{ marcarLeido: [mensaje: Resumen]; responder: []; volver: [] }>();
+const emit = defineEmits<{
+	marcarLeido: [mensaje: Resumen];
+	responder: [];
+	archive: [];
+	delete: [];
+	volver: [];
+}>();
 
 const { t, locale } = useI18n();
 
@@ -320,6 +326,16 @@ const cuando = computed(() => {
             variant="secondary"
             size="sm"
             @click="emit('marcarLeido', abierto)" />
+          <ActionButton
+            :label="t('mensaje.archivar')"
+            variant="secondary"
+            size="sm"
+            @click="emit('archive')" />
+          <ActionButton
+            :label="t('mensaje.borrar')"
+            variant="secondary"
+            size="sm"
+            @click="emit('delete')" />
         </div>
       </header>
 

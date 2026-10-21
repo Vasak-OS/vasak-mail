@@ -19,6 +19,8 @@ atajos:
   abrir: Open the first one
   volver: Back to the list
   responder: Reply
+  archive: Archive
+  delete: Move to trash
   redactar: Write a new one
   actualizar: Refresh
   irALaEntrada: Go to the inbox
@@ -65,6 +67,10 @@ lista:
   conAdjuntos: Has an attachment
   noLeido: Unread
 mensaje:
+  archivar: Archive
+  borrar: Delete
+  sinArchivo: "This account has no archive folder on the server."
+  quedoElOriginal: "It was copied, but the server didn't let the original be removed from the folder: it may show up in both."
   guardar: Save
   guardando: Saving…
   guardadoEn: "Saved to {0}"
