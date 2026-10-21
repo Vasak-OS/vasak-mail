@@ -80,6 +80,9 @@ pub fn run() {
             comandos::descartar_saliente,
             comandos::take_pending_mailto,
             comandos::request_mail_access_again,
+            comandos::importar_identidad_smime,
+            comandos::estado_identidad_smime,
+            comandos::quitar_identidad_smime,
         ])
         // El sincronizador avisa cuando llega correo; esto lo traduce a un
         // evento que la ventana escucha. Ver `correo.rs`.

@@ -137,6 +137,7 @@ redactar:
   descartarBorrador: Discard what you wrote?
   firmar: Sign with S/MIME
   firmarPorQue: With your certificate. Without one for this account, the message will not go out.
+  firmarSinCertificado: Import this account's certificate in Preferences to be able to sign.
   respuestaACifrado: You are replying to an encrypted message. The reply quotes its text and goes out unencrypted.
 smime:
   # `{0}` is the address of the certificate that signed. Never "valid": what was
@@ -157,6 +158,27 @@ smime:
   cuerpoNoDisponible: >-
     This message is encrypted or signed with S/MIME. The body is not available
     in this view yet.
+  # Importing each account's identity (certificate with its key), in Preferences.
+  seccion: S/MIME
+  seccionPorQue: >-
+    The certificate with its private key, in a .p12 or .pfx file. It is stored
+    encrypted in the system and is used to sign that account's messages.
+  elegir: Choose .p12 file
+  elegirTitulo: Choose the certificate
+  filtro: Certificate (.p12, .pfx)
+  contrasena: File password
+  importar: Import
+  quitar: Remove
+  ausente: This account does not have a certificate to sign with yet.
+  # `{0}` is the date the certificate expires.
+  vence: "expires on {0}"
+  errorWrongPassword: The password does not open the certificate.
+  errorTooBig: The file is larger than allowed (8 MiB).
+  errorAddressMismatch: The certificate is not for this account's address.
+  errorUnsupportedLegacy: The .p12 uses legacy encryption; re-export it without the -legacy option.
+  errorMalformed: The .p12 could not be read (is it not a PFX, or is the key missing?).
+  errorKeyringLocked: The keyring is locked; unlock it and try again.
+  errorFailed: The operation with the certificate could not be completed.
 
 deshacer:
   # `{0}` is the seconds left.

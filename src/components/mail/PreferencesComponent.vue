@@ -11,6 +11,8 @@ import {
 	Slider,
 } from '@vasakgroup/vue-libvasak';
 import { computed, onMounted, ref } from 'vue';
+import SmimeIdentityCard from '@/components/mail/SmimeIdentityCard.vue';
+import type { Cuenta } from '@/composables/use-correo';
 import { guardarPreferencia, usePreferencias } from '@/composables/use-preferencias';
 import { MAX_SEGUNDOS_PARA_DESHACER } from '@/tools/deshacer';
 import { interpolar } from '@/tools/interpolar';
@@ -23,7 +25,7 @@ import { interpolar } from '@/tools/interpolar';
  * de atrás. Ahora lo pone `DialogContent`, con Escape y el foco devuelto al
  * cerrar.
  */
-defineProps<{ abierto: boolean }>();
+withDefaults(defineProps<{ abierto: boolean; cuentas?: Cuenta[] }>(), { cuentas: () => [] });
 const emit = defineEmits<{ cerrar: [] }>();
 
 const { t } = useI18n();
@@ -168,6 +170,13 @@ async function chooseDetail(valor: string) {
             <span class="inline-block w-20 text-right text-label-s text-tx-main tabular-nums">{{ undoText }}</span>
           </template>
         </Slider>
+      </section>
+      <section v-if="cuentas.length" class="mt-4 flex flex-col gap-1 border-ui-line-weak border-t pt-3">
+        <h3 class="mb-1 font-semibold text-label-m">{{ t('smime.seccion') }}</h3>
+        <p class="mb-2 text-body-xs text-tx-muted">{{ t('smime.seccionPorQue') }}</p>
+        <div class="flex flex-col gap-2">
+          <SmimeIdentityCard v-for="c in cuentas" :key="c.account_id" :cuenta="c" />
+        </div>
       </section>
       <!-- En el aviso del sistema: guardar una preferencia y que falle es un
            error, y con `role="alert"` interrumpe en vez de esperar turno. -->

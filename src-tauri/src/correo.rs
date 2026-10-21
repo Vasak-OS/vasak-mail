@@ -20,6 +20,7 @@
 //! Lo que llega acá igual **es texto que escribió cualquiera**: se muestra, no se
 //! interpreta. Nada de esto se convierte en HTML ni se ejecuta.
 
+use std::os::fd::OwnedFd;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -871,6 +872,124 @@ pub async fn descartar(id: &str) -> Result<(), String> {
     llamar_sin_respuesta("DiscardOutgoing", &(id,))
         .await
         .map_err(|e| format!("no se pudo descartar: {e}"))
+}
+
+// ── Identidad S/MIME ─────────────────────────────────────────────────────────
+//
+// El certificado y su clave los guarda el sincronizador (en `vasak-keyring`),
+// nunca esta ventana. Lo único que cruza el bus son dos secretos —el `.p12` y la
+// contraseña que lo abre— y cada uno va en su propio **memfd sellado**: memoria
+// que el servicio puede leer pero que ya nadie, ni esta ventana después, puede
+// cambiar. El servicio exige el sello de escritura y rebobina el fd para leerlo.
+
+/// El estado de la identidad S/MIME de una cuenta, tal como lo publica
+/// `GetSmimeIdentity`. Sin identidad, `present` es `false` y los demás `None`.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct EstadoSmime {
+    #[serde(default)]
+    pub present: bool,
+    #[serde(default)]
+    pub email: Option<String>,
+    #[serde(default)]
+    pub not_after: Option<String>,
+}
+
+/// Un memfd de sólo lectura con `bytes` adentro, para pasarle un secreto al
+/// sincronizador por el bus.
+///
+/// El servicio exige `F_SEAL_WRITE`: sin él rechaza el fd como `Malformed`, y lo
+/// mismo si el fd es un pipe, un socket o un archivo regular. Sellar también
+/// contra crecer, encoger y sellar de nuevo deja la memoria fija: lo que el
+/// servicio lee es exactamente lo que se escribió acá. No se rebobina —el
+/// servicio busca el inicio antes de leer—.
+pub(crate) fn sealed_memfd(bytes: &[u8]) -> Result<OwnedFd, String> {
+    use std::io::Write;
+
+    use rustix::fs::{fcntl_add_seals, memfd_create, MemfdFlags, SealFlags};
+
+    let fd = memfd_create(
+        "vasak-mail-smime",
+        MemfdFlags::CLOEXEC | MemfdFlags::ALLOW_SEALING,
+    )
+    .map_err(|e| format!("no se pudo reservar memoria sellada: {e}"))?;
+    let mut archivo = std::fs::File::from(fd);
+    archivo
+        .write_all(bytes)
+        .map_err(|e| format!("no se pudo escribir la memoria sellada: {e}"))?;
+    let fd = OwnedFd::from(archivo);
+    fcntl_add_seals(
+        &fd,
+        SealFlags::WRITE | SealFlags::SHRINK | SealFlags::GROW | SealFlags::SEAL,
+    )
+    .map_err(|e| format!("no se pudo sellar la memoria: {e}"))?;
+    Ok(fd)
+}
+
+/// El código corto y estable de un fallo al importar una identidad S/MIME, para
+/// que la ventana elija el mensaje en el idioma de la sesión.
+///
+/// Espejo de [`describe`]/[`denied_by_store`]: clasifica por el nombre del error
+/// de D-Bus que trae el servicio (`ar.net.vasak.os.AccountsSync.WrongPassword` y
+/// los demás). Un error sin un nombre conocido cae en `Failed`, que la ventana
+/// muestra como mensaje genérico.
+pub(crate) fn smime_error_code(error: &StoreError) -> &'static str {
+    let StoreError::Store {
+        name: Some(name), ..
+    } = error
+    else {
+        return "Failed";
+    };
+    for codigo in [
+        "WrongPassword",
+        "TooBig",
+        "AddressMismatch",
+        "UnsupportedLegacy",
+        "Malformed",
+        "KeyringLocked",
+    ] {
+        if name.contains(codigo) {
+            return codigo;
+        }
+    }
+    "Failed"
+}
+
+/// Importa una identidad S/MIME en una cuenta: el `.p12` y la contraseña, cada
+/// uno en su memfd sellado ([`sealed_memfd`]). Devuelve el [`StoreError`] crudo
+/// para que el comando lo clasifique con [`smime_error_code`].
+///
+/// Los dos fds van por `call_on`, que **preserva los descriptores**: zbus los
+/// serializa como `h` y los adjunta al mensaje. Los `OwnedFd` los tiene el
+/// llamador y se cierran cuando él los suelta, después de este `await`.
+pub async fn importar_identidad_smime(
+    account_id: &str,
+    p12_fd: &OwnedFd,
+    password_fd: &OwnedFd,
+) -> Result<(), StoreError> {
+    use zbus::zvariant::Fd;
+
+    store()
+        .map_err(|_| StoreError::NotRunning)?
+        .call_on::<_, ()>(
+            RUTA,
+            INTERFAZ,
+            "ImportSmimeIdentity",
+            &(account_id, Fd::from(p12_fd), Fd::from(password_fd)),
+        )
+        .await
+}
+
+/// El estado de la identidad S/MIME de una cuenta.
+pub async fn estado_identidad_smime(account_id: &str) -> Result<EstadoSmime, String> {
+    let json = llamar("GetSmimeIdentity", &(account_id,)).await?;
+    serde_json::from_str(&json).map_err(|e| format!("no se pudo leer el estado S/MIME: {e}"))
+}
+
+/// Quita la identidad S/MIME de una cuenta.
+pub async fn quitar_identidad_smime(account_id: &str) -> Result<(), String> {
+    llamar_sin_respuesta("RemoveSmimeIdentity", &(account_id,))
+        .await
+        .map_err(|e| format!("no se pudo quitar la identidad S/MIME: {e}"))
 }
 
 /// El evento que ve la ventana cuando llega correo.
@@ -2101,11 +2220,60 @@ mod tests {
         }
     }
 
-    /// El servidor en vivo, para cuando el almacén no tiene la casilla.
-    struct FakeSync;
+    /// El servidor en vivo, para cuando el almacén no tiene la casilla. También
+    /// hace de sincronizador para S/MIME: anota lo que le llega en
+    /// `ImportSmimeIdentity` y contesta con el error que se le pida.
+    #[derive(Clone, Default)]
+    struct FakeSync {
+        smime_calls: Arc<std::sync::Mutex<Vec<SmimeCall>>>,
+        wrong_password: Arc<std::sync::atomic::AtomicBool>,
+        removed: Arc<std::sync::Mutex<Vec<String>>>,
+    }
 
     #[zbus::interface(name = "ar.net.vasak.os.AccountsSync")]
     impl FakeSync {
+        async fn get_smime_identity(&self, account_id: String) -> String {
+            match account_id.as_str() {
+                "ana" => r#"{"present":true,"email":"ana@ejemplo.org","not_after":"2027-01-31T12:00:00Z"}"#,
+                _ => r#"{"present":false}"#,
+            }
+            .to_string()
+        }
+
+        async fn remove_smime_identity(&self, account_id: String) {
+            self.removed.lock().unwrap().push(account_id);
+        }
+
+        // `h` en el cable: zbus rechaza la llamada si el cliente no manda
+        // `(s, h, h)`. Por cada fd anota si está sellado contra escritura y lo
+        // que trae leído desde el principio.
+        async fn import_smime_identity(
+            &self,
+            account_id: String,
+            p12: zbus::zvariant::OwnedFd,
+            password: zbus::zvariant::OwnedFd,
+        ) -> Result<(), FakeSmimeError> {
+            let mirar = |fd: zbus::zvariant::OwnedFd| {
+                let fd = OwnedFd::from(fd);
+                (
+                    seals_of(&fd).contains(rustix::fs::SealFlags::WRITE),
+                    contents_of(&fd),
+                )
+            };
+            self.smime_calls.lock().unwrap().push(SmimeCall {
+                account_id,
+                p12: mirar(p12),
+                password: mirar(password),
+            });
+            if self
+                .wrong_password
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                return Err(FakeSmimeError::WrongPassword("no abre".into()));
+            }
+            Ok(())
+        }
+
         async fn list_messages(&self, _account_id: String, _casilla: String) -> String {
             r#"[{"uid":99,"de":"Servidor","direccion":"srv@ejemplo.com","asunto":"Del servidor","fecha":"2026-09-20T10:00:00Z","sin_leer":false,"con_adjuntos":false}]"#.to_string()
         }
@@ -2114,7 +2282,8 @@ mod tests {
     /// El camino de lectura del correo, de punta a punta por el cliente del
     /// almacén de verdad: del almacén si lo tiene, del servidor si no, y el
     /// estado «sin permiso» cuando la persona le dijo que no —sin caer al
-    /// servidor por detrás—.
+    /// servidor por detrás—. Al final, la importación S/MIME por el mismo
+    /// servidor ([`importar_por_el_bus`]).
     #[tokio::test]
     async fn mensajes_sale_del_almacen_cae_al_servidor_o_dice_sin_permiso() {
         let _turno = test_bus::exclusive();
@@ -2122,6 +2291,7 @@ mod tests {
         let mode = Arc::new(std::sync::Mutex::new("hit"));
         // El dueño sirve el almacén y la interfaz en vivo en sus dos objetos, y
         // toma el nombre del sincronizador.
+        let sync = FakeSync::default();
         let _dueno = zbus::connection::Builder::address(bus.address.as_str())
             .unwrap()
             .serve_at(
@@ -2129,7 +2299,7 @@ mod tests {
                 FakeStore { mode: mode.clone() },
             )
             .unwrap()
-            .serve_at(RUTA, FakeSync)
+            .serve_at(RUTA, sync.clone())
             .unwrap()
             .name(SERVICIO)
             .unwrap()
@@ -2159,5 +2329,212 @@ mod tests {
             mensajes("a", "INBOX").await,
             Err(STORE_PERMISSION_DENIED.to_string())
         );
+
+        // Y, por el mismo servidor, importar la identidad S/MIME.
+        importar_por_el_bus(&sync).await;
+    }
+
+    // ── Identidad S/MIME: el memfd sellado y el código de error ──────────────
+
+    /// Los sellos de un fd, como los ve quien lo recibe.
+    fn seals_of(fd: &OwnedFd) -> rustix::fs::SealFlags {
+        rustix::fs::fcntl_get_seals(fd).expect("el fd tiene que ser un memfd")
+    }
+
+    /// Lo que hay escrito en un memfd, leído desde el principio por un duplicado
+    /// (comparte la posición con el original, así que se rebobina, como hace el
+    /// servicio).
+    fn contents_of(fd: &OwnedFd) -> Vec<u8> {
+        use std::io::{Read, Seek, SeekFrom};
+
+        let mut file = std::fs::File::from(fd.try_clone().unwrap());
+        file.seek(SeekFrom::Start(0)).unwrap();
+        let mut out = Vec::new();
+        file.read_to_end(&mut out).unwrap();
+        out
+    }
+
+    /// **Lo que exige el servicio.** Sin `F_SEAL_WRITE` rechaza el fd como
+    /// `Malformed`: quien recibe el secreto tiene que tener la garantía de que
+    /// nadie lo cambia mientras lo lee.
+    #[test]
+    fn el_memfd_del_secreto_sale_sellado_contra_escritura_y_cambios_de_tamano() {
+        use rustix::fs::SealFlags;
+
+        let fd = sealed_memfd(b"secreto").unwrap();
+        let seals = seals_of(&fd);
+
+        assert!(seals.contains(SealFlags::WRITE), "{seals:?}");
+        assert!(seals.contains(SealFlags::SHRINK), "{seals:?}");
+        assert!(seals.contains(SealFlags::GROW), "{seals:?}");
+        assert!(seals.contains(SealFlags::SEAL), "{seals:?}");
+    }
+
+    #[test]
+    fn el_memfd_del_secreto_trae_exactamente_los_bytes_que_se_le_dieron() {
+        // Con bytes que no son texto ni UTF-8 válido: un `.p12` es binario.
+        let p12: Vec<u8> = (0..=255u8).cycle().take(70_000).collect();
+
+        assert_eq!(contents_of(&sealed_memfd(&p12).unwrap()), p12);
+        assert_eq!(contents_of(&sealed_memfd(b"hunter2").unwrap()), b"hunter2");
+        assert!(contents_of(&sealed_memfd(b"").unwrap()).is_empty());
+    }
+
+    /// El sello no es un adorno: una vez sellado, ni quien tiene el fd puede
+    /// escribir, agrandar ni achicar el contenido.
+    #[test]
+    fn el_memfd_sellado_no_se_puede_modificar() {
+        use std::io::Write;
+
+        let fd = sealed_memfd(b"secreto").unwrap();
+        let mut file = std::fs::File::from(fd.try_clone().unwrap());
+
+        assert!(file.write_all(b"otro").is_err(), "se pudo escribir");
+        assert!(file.set_len(1).is_err(), "se pudo achicar");
+        assert!(file.set_len(1 << 20).is_err(), "se pudo agrandar");
+        assert_eq!(contents_of(&fd), b"secreto");
+    }
+
+    /// Cada llamada da su propio memfd: el `.p12` y la contraseña no pueden
+    /// compartir memoria.
+    #[test]
+    fn cada_secreto_va_en_su_propio_memfd() {
+        let uno = sealed_memfd(b"uno").unwrap();
+        let otro = sealed_memfd(b"otro").unwrap();
+
+        assert_eq!(contents_of(&uno), b"uno");
+        assert_eq!(contents_of(&otro), b"otro");
+    }
+
+    fn named(name: &str) -> StoreError {
+        StoreError::Store {
+            name: Some(name.into()),
+            message: "x".into(),
+        }
+    }
+
+    /// Cada error del servicio llega a la ventana como su código corto, que es
+    /// por lo que ella elige el mensaje.
+    #[test]
+    fn cada_error_del_servicio_se_traduce_a_su_codigo() {
+        for codigo in [
+            "WrongPassword",
+            "TooBig",
+            "AddressMismatch",
+            "UnsupportedLegacy",
+            "Malformed",
+            "KeyringLocked",
+        ] {
+            let nombre = format!("ar.net.vasak.os.AccountsSync.{codigo}");
+            assert_eq!(smime_error_code(&named(&nombre)), codigo, "{nombre}");
+        }
+    }
+
+    /// Lo que no es uno de los seis cae en `Failed`, que la ventana muestra
+    /// como mensaje genérico: nombres desconocidos, errores sin nombre y los
+    /// de «no hay servicio».
+    #[test]
+    fn lo_que_no_se_conoce_es_failed() {
+        assert_eq!(
+            smime_error_code(&named("ar.net.vasak.os.AccountsSync.Failed")),
+            "Failed"
+        );
+        assert_eq!(
+            smime_error_code(&named("org.freedesktop.DBus.Error.AccessDenied")),
+            "Failed"
+        );
+        assert_eq!(
+            smime_error_code(&StoreError::Store {
+                name: None,
+                message: "WrongPassword".into(),
+            }),
+            "Failed",
+            "el texto no cuenta: sólo el nombre del error"
+        );
+        assert_eq!(smime_error_code(&StoreError::NotRunning), "Failed");
+        assert_eq!(smime_error_code(&StoreError::Impostor), "Failed");
+    }
+
+    #[test]
+    fn el_estado_smime_se_lee_con_y_sin_identidad() {
+        let con: EstadoSmime = serde_json::from_str(
+            r#"{"present":true,"email":"ana@ejemplo.org","not_after":"2027-01-31T00:00:00Z"}"#,
+        )
+        .unwrap();
+        assert!(con.present);
+        assert_eq!(con.email.as_deref(), Some("ana@ejemplo.org"));
+        assert_eq!(con.not_after.as_deref(), Some("2027-01-31T00:00:00Z"));
+
+        let sin: EstadoSmime = serde_json::from_str(r#"{"present":false}"#).unwrap();
+        assert_eq!(sin, EstadoSmime::default());
+    }
+
+    /// Lo que recibió el servicio de mentira en una llamada a
+    /// `ImportSmimeIdentity`: la cuenta y, por cada fd, sus sellos y su
+    /// contenido leído desde el principio.
+    #[derive(Debug, Clone, PartialEq)]
+    struct SmimeCall {
+        account_id: String,
+        p12: (bool, Vec<u8>),
+        password: (bool, Vec<u8>),
+    }
+
+    #[derive(zbus::DBusError, Debug)]
+    #[zbus(prefix = "ar.net.vasak.os.AccountsSync")]
+    enum FakeSmimeError {
+        #[zbus(error)]
+        ZBus(zbus::Error),
+        WrongPassword(String),
+    }
+
+    /// **De punta a punta por el bus**: `importar_identidad_smime` arma la
+    /// llamada `ImportSmimeIdentity(s, h, h)` y el servicio recibe los dos
+    /// secretos, cada uno en un fd sellado contra escritura y con exactamente su
+    /// contenido; y su error llega con el nombre de D-Bus y se traduce al código
+    /// que entiende la ventana, por el cable de verdad y no armado a mano.
+    ///
+    /// No es una prueba aparte porque el cliente global es un `OnceLock` que
+    /// guarda la conexión al **primer** bus: una segunda prueba con su propio bus
+    /// hablaría con uno ya muerto. Cuelga de la que ya levanta el servicio.
+    async fn importar_por_el_bus(sync: &FakeSync) {
+        let p12_bytes = [0x30, 0x82, 0xff, 0x00, 0x01];
+        let p12 = sealed_memfd(&p12_bytes).unwrap();
+        let password = sealed_memfd("contraseña".as_bytes()).unwrap();
+
+        importar_identidad_smime("ana", &p12, &password)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            *sync.smime_calls.lock().unwrap(),
+            vec![SmimeCall {
+                account_id: "ana".into(),
+                p12: (true, p12_bytes.to_vec()),
+                password: (true, "contraseña".as_bytes().to_vec()),
+            }]
+        );
+
+        sync.wrong_password
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let error = importar_identidad_smime("ana", &p12, &password)
+            .await
+            .unwrap_err();
+        assert_eq!(smime_error_code(&error), "WrongPassword", "{error:?}");
+
+        // Consultar y quitar, con la cuenta en el cable.
+        assert_eq!(
+            estado_identidad_smime("ana").await.unwrap(),
+            EstadoSmime {
+                present: true,
+                email: Some("ana@ejemplo.org".into()),
+                not_after: Some("2027-01-31T12:00:00Z".into()),
+            }
+        );
+        assert_eq!(
+            estado_identidad_smime("otra").await.unwrap(),
+            EstadoSmime::default()
+        );
+        quitar_identidad_smime("ana").await.unwrap();
+        assert_eq!(*sync.removed.lock().unwrap(), vec!["ana".to_string()]);
     }
 }
