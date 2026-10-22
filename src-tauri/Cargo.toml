@@ -65,6 +65,7 @@ tauri-plugin-single-instance = "2"
 
 # Para la ventana sin decoración: la barra propia necesita mover y redimensionar.
 gtk = "0.18"
+webkit2gtk = "2.0"
 tauri-plugin-vsk-journal = "2"
 # Para hablar con vasak-accounts-sync, que es de donde sale el correo. En el bus
 # **de sesión**: es un servicio del usuario y lo que publica es suyo.

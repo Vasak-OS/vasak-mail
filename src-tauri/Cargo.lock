@@ -4517,6 +4517,7 @@ dependencies = [
  "tauri-plugin-vsk-journal",
  "tauri-plugin-vsk-store",
  "tokio",
+ "webkit2gtk",
  "zbus",
 ]
 
