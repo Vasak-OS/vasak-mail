@@ -4,6 +4,7 @@
 //! aplicaciones reales del escritorio se rompió al menos una vez.
 
 mod comandos;
+mod commands;
 mod correo;
 mod locales;
 mod mailto;
@@ -83,6 +84,7 @@ pub fn run() {
             comandos::importar_identidad_smime,
             comandos::estado_identidad_smime,
             comandos::quitar_identidad_smime,
+            commands::webkit::tune_webview,
         ])
         // El sincronizador avisa cuando llega correo; esto lo traduce a un
         // evento que la ventana escucha. Ver `correo.rs`.

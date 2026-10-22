@@ -39,9 +39,17 @@ function aCamello(nombre: string): string {
  */
 function comandosDeRust(): Map<string, string[]> {
 	const comandos = new Map<string, string[]>();
-	// Acá los comandos viven en un archivo solo, no en un directorio por
-	// familia como en `vasak-settings`.
-	const fuente = readFileSync('src-tauri/src/comandos.rs', 'utf8');
+	// Los comandos viven en `comandos.rs` y, los de infraestructura de la
+	// ventana (afinado del WebKit), en `src-tauri/src/commands/`.
+	const dirComandos = 'src-tauri/src/commands';
+	const fuente = [
+		'src-tauri/src/comandos.rs',
+		...readdirSync(dirComandos)
+			.filter((f) => f.endsWith('.rs'))
+			.map((f) => join(dirComandos, f)),
+	]
+		.map((f) => readFileSync(f, 'utf8'))
+		.join('\n');
 
 	// El `<…>` opcional después del nombre es por los comandos genéricos
 	// —`fn x<R: Runtime>(app: AppHandle<R>)`—, que son válidos y que sin esto
