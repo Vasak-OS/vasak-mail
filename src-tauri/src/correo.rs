@@ -630,6 +630,30 @@ pub async fn open_message(
 /// panel: el sincronizador trae todo con `BODY.PEEK`, que mira sin marcar. Que
 /// pasar por encima de un mensaje con las flechas te vacíe el contador de sin
 /// leer es de los errores más molestos que puede tener un cliente de correo.
+/// Cómo terminó un movimiento en el servidor: `entero`, o `sin_borrar_el_viejo`
+/// si la copia llegó al destino pero el original no se pudo sacar de donde
+/// estaba (servidor sin `MOVE` ni `UIDPLUS`).
+fn outcome_of(json: &str) -> Result<String, String> {
+    serde_json::from_str(json).map_err(|e| format!("respuesta inesperada del sincronizador: {e}"))
+}
+
+/// Mueve un mensaje a otra carpeta del servidor (archivar es esto, hacia la
+/// carpeta con uso `archivo`).
+pub async fn move_message(
+    account_id: &str,
+    mailbox: &str,
+    uid: u32,
+    destination: &str,
+) -> Result<String, String> {
+    outcome_of(&llamar("MoveMessage", &(account_id, mailbox, uid, destination)).await?)
+}
+
+/// Lo manda a la papelera del servidor. Si la cuenta no tiene papelera, el
+/// sincronizador falla en vez de borrar para siempre.
+pub async fn delete_message(account_id: &str, mailbox: &str, uid: u32) -> Result<String, String> {
+    outcome_of(&llamar("DeleteMessage", &(account_id, mailbox, uid)).await?)
+}
+
 pub async fn marcar_leido(account_id: &str, casilla: &str, uid: u32) -> Result<(), String> {
     llamar_sin_respuesta("MarkRead", &(account_id, casilla, uid))
         .await
@@ -2277,6 +2301,33 @@ mod tests {
         async fn list_messages(&self, _account_id: String, _casilla: String) -> String {
             r#"[{"uid":99,"de":"Servidor","direccion":"srv@ejemplo.com","asunto":"Del servidor","fecha":"2026-09-20T10:00:00Z","sin_leer":false,"con_adjuntos":false}]"#.to_string()
         }
+
+        /// Contesta qué recibió, para ver que llegan los cuatro datos en orden.
+        async fn move_message(
+            &self,
+            account_id: String,
+            mailbox: String,
+            uid: u32,
+            destination: String,
+        ) -> String {
+            assert_eq!(
+                (account_id.as_str(), mailbox.as_str(), uid),
+                ("a", "INBOX", 7)
+            );
+            if destination == "Archivo" {
+                "\"entero\"".into()
+            } else {
+                "\"sin_borrar_el_viejo\"".into()
+            }
+        }
+
+        async fn delete_message(&self, account_id: String, mailbox: String, uid: u32) -> String {
+            assert_eq!(
+                (account_id.as_str(), mailbox.as_str(), uid),
+                ("a", "INBOX", 7)
+            );
+            "\"entero\"".into()
+        }
     }
 
     /// El camino de lectura del correo, de punta a punta por el cliente del
@@ -2322,6 +2373,21 @@ mod tests {
         let desde_servidor = mensajes("a", "INBOX").await.unwrap();
         assert_eq!(desde_servidor.len(), 1);
         assert_eq!(desde_servidor[0].asunto, "Del servidor");
+
+        // Mover y borrar van al sincronizador en vivo por los comandos, con lo
+        // que contesta traducido a texto.
+        assert_eq!(
+            crate::comandos::move_message("a".into(), "INBOX".into(), 7, "Archivo".into()).await,
+            Ok("entero".to_string())
+        );
+        assert_eq!(
+            crate::comandos::move_message("a".into(), "INBOX".into(), 7, "Viejo".into()).await,
+            Ok("sin_borrar_el_viejo".to_string())
+        );
+        assert_eq!(
+            crate::comandos::delete_message("a".into(), "INBOX".into(), 7).await,
+            Ok("entero".to_string())
+        );
 
         // Con el «no» al almacén no se va al servidor: se dice «sin permiso».
         *mode.lock().unwrap() = "denied";
@@ -2536,5 +2602,20 @@ mod tests {
         );
         quitar_identidad_smime("ana").await.unwrap();
         assert_eq!(*sync.removed.lock().unwrap(), vec!["ana".to_string()]);
+    }
+
+    #[test]
+    fn el_resultado_entero_se_lee_como_texto() {
+        assert_eq!(outcome_of("\"entero\"").unwrap(), "entero");
+        assert_eq!(
+            outcome_of("\"sin_borrar_el_viejo\"").unwrap(),
+            "sin_borrar_el_viejo"
+        );
+    }
+
+    #[test]
+    fn una_respuesta_que_no_es_json_se_rechaza() {
+        assert!(outcome_of("entero").is_err());
+        assert!(outcome_of("").is_err());
     }
 }

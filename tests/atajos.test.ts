@@ -137,15 +137,16 @@ describe('atajos', () => {
 
 	/**
 	 * Lo que el issue pide explícitamente: no declarar atajos que no hacen nada.
-	 * Archivar, borrar, destacar y marcar como no leído son del juego de Gmail y
-	 * todavía no existen acá.
+	 * Destacar y marcar como no leído son del juego de Gmail y todavía no existen
+	 * acá.
 	 *
-	 * `buscar` **salió de esta lista** cuando entró el buscador. Ése es el ciclo
+	 * `buscar` **salió de esta lista** cuando entró el buscador, y archivar y
+	 * borrar cuando el sincronizador supo mover. Ése es el ciclo
 	 * que esta prueba tiene que sostener: una acción sale de acá el día que
 	 * empieza a contestar, y no antes.
 	 */
 	test('no se prometen teclas que no contestan', () => {
-		const sinHacer = ['archivar', 'borrar', 'destacar', 'marcarNoLeido'];
+		const sinHacer = ['destacar', 'marcarNoLeido'];
 		for (const mapa of [GMAIL, VIM]) {
 			for (const accion of Object.values(mapa)) {
 				expect(sinHacer).not.toContain(accion as string);
@@ -177,6 +178,26 @@ describe('atajos', () => {
 		expect(a.apretar(tecla('j'))).toBeNull();
 		expect(a.apretar(tecla('g'), 0)).toBeNull();
 		expect(a.apretar(tecla('g'), 10)).toBe('irALaEntrada');
+	});
+});
+
+describe('archivar y borrar', () => {
+	test('en el juego de Gmail, e archiva y # borra', () => {
+		const a = new Atajos();
+		expect(a.apretar(tecla('e'))).toBe('archive');
+		expect(a.apretar(tecla('#'))).toBe('delete');
+	});
+
+	test('en el juego de Vim, e archiva y d d borra', () => {
+		const a = new Atajos(VIM);
+		expect(a.apretar(tecla('e'))).toBe('archive');
+		expect(a.apretar(tecla('d'), 0)).toBeNull();
+		expect(a.apretar(tecla('d'), 10)).toBe('delete');
+	});
+
+	test('dentro de un campo no se dispara nada', () => {
+		const a = new Atajos();
+		expect(a.apretar(tecla('e', { target: { tagName: 'INPUT' } }))).toBeNull();
 	});
 });
 

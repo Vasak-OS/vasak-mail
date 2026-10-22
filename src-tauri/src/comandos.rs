@@ -68,6 +68,27 @@ pub async fn marcar_leido(account_id: String, casilla: String, uid: u32) -> Resu
     correo::marcar_leido(&account_id, &casilla, uid).await
 }
 
+/// Mueve un mensaje a otra carpeta del servidor.
+#[tauri::command]
+pub async fn move_message(
+    account_id: String,
+    mailbox: String,
+    uid: u32,
+    destination: String,
+) -> Result<String, String> {
+    correo::move_message(&account_id, &mailbox, uid, &destination).await
+}
+
+/// Manda un mensaje a la papelera del servidor.
+#[tauri::command]
+pub async fn delete_message(
+    account_id: String,
+    mailbox: String,
+    uid: u32,
+) -> Result<String, String> {
+    correo::delete_message(&account_id, &mailbox, uid).await
+}
+
 /// Pone un mensaje en la cola de salida.
 #[tauri::command]
 pub async fn enviar_mensaje(
