@@ -6,6 +6,7 @@ import {
 	ListRow,
 	LoadingState,
 	Panel,
+	RevealTransition,
 	SearchField,
 	StatusDot,
 	ThemeIcon,
@@ -125,6 +126,10 @@ defineExpose({ focusSearch });
 async function leaveSearch() {
 	emit('limpiar');
 	await nextTick();
+	focusRow();
+}
+
+function focusRow() {
 	const row = (selector: string) => rootElement()?.querySelector<HTMLElement>(selector) ?? null;
 	pickFocusTarget({
 		// `aria-current` ya marca cuál está abierto: se lee de la plantilla en vez
@@ -134,6 +139,19 @@ async function leaveSearch() {
 		container: rootElement(),
 	})?.focus();
 }
+
+/**
+ * Si Escape limpió una búsqueda sin resultados, la lista todavía no existe en
+ * el `nextTick` (sale primero el aviso de «vacía», `out-in`) y el foco cayó en
+ * el panel. Cuando la lista se monta, se lo lleva a su fila; si el foco ya estaba
+ * en otro lado, no se lo toca.
+ */
+const rows = ref<HTMLElement | null>(null);
+watch(rows, (lista) => {
+	if (lista && document.activeElement === rootElement()) {
+		focusRow();
+	}
+});
 
 /** La hora si llegó hoy, el día si no. Ver `src/tools/fecha.ts`. */
 function cuandoLlego(fecha: string): string {
@@ -225,64 +243,70 @@ function cuentaDe(mensaje: Resumen): string {
       </p>
     </div>
 
-    <LoadingState v-if="cargando && !hayAlgo" size="sm" :label="t('lista.cargando')" />
-    <!-- Sin icono: el panel es angosto y la frase ya dice todo. -->
-    <EmptyState v-else-if="!hayAlgo" size="sm" icon="" :title="t('lista.vacia')" />
+    <!-- `out-in`: los tres estados reemplazan al anterior en el mismo lugar. Sin
+         clave por carpeta, a propósito: al cambiar de carpeta `mensajes` sigue
+         siendo el de la anterior hasta que llega la lectura, y una clave que
+         cambiara antes mostraría la carpeta vieja bajo el nombre nuevo. -->
+    <RevealTransition mode="out-in">
+      <LoadingState v-if="cargando && !hayAlgo" size="sm" :label="t('lista.cargando')" />
+      <!-- Sin icono: el panel es angosto y la frase ya dice todo. -->
+      <EmptyState v-else-if="!hayAlgo" size="sm" icon="" :title="t('lista.vacia')" />
 
-    <ul v-else class="flex flex-col gap-0.5 p-1">
-      <!-- La clave es `(cuenta, carpeta, uid)` y no el `uid`: en la combinada
-           el 7 de una cuenta y el 7 de otra son dos mensajes distintos, y con
-           claves repetidas Vue reusa el nodo equivocado al actualizar.
+      <ul v-else ref="rows" class="flex flex-col gap-0.5 p-1">
+        <!-- La clave es `(cuenta, carpeta, uid)` y no el `uid`: en la combinada
+             el 7 de una cuenta y el 7 de otra son dos mensajes distintos, y con
+             claves repetidas Vue reusa el nodo equivocado al actualizar.
 
-           `role="button"` y `selected`: es `ListRow` la que pone el
-           `aria-current` en la fila abierta, y lo que buscan los selectores de
-           `tools/focus.ts`. -->
-      <li v-for="mensaje in mensajes" :key="claveDe(mensaje)">
-        <ListRow
-          role="button"
-          :selected="esElMismo(mensaje, abierto)"
-          @click="emit('abrir', mensaje)">
-          <span class="flex w-full min-w-0 items-center gap-2">
-            <!-- Sin leer se marca con el punto **y** con la negrita: el color
-                 solo no se ve si no se distinguen los colores (WCAG 1.4.1), y
-                 esto es lo que separa lo que falta leer de lo que no.
+             `role="button"` y `selected`: es `ListRow` la que pone el
+             `aria-current` en la fila abierta, y lo que buscan los selectores de
+             `tools/focus.ts`. -->
+        <li v-for="mensaje in mensajes" :key="claveDe(mensaje)">
+          <ListRow
+            role="button"
+            :selected="esElMismo(mensaje, abierto)"
+            @click="emit('abrir', mensaje)">
+            <span class="flex w-full min-w-0 items-center gap-2">
+              <!-- Sin leer se marca con el punto **y** con la negrita: el color
+                   solo no se ve si no se distinguen los colores (WCAG 1.4.1), y
+                   esto es lo que separa lo que falta leer de lo que no.
 
-                 Con nombre: `StatusDot` con `label` se expone como imagen con
-                 nombre accesible, que es lo que hacía falta para que la marca
-                 de «sin leer» no quedara puesta sólo en el color. -->
-            <StatusDot v-if="mensaje.sin_leer" tone="accent" :label="t('lista.noLeido')" />
-            <span
-              class="min-w-0 flex-1 truncate text-label-m"
-              :class="mensaje.sin_leer ? 'font-semibold' : 'font-normal'"
-              :title="`${mensaje.de} <${mensaje.direccion}>`">
-              {{ mensaje.de }}
+                   Con nombre: `StatusDot` con `label` se expone como imagen con
+                   nombre accesible, que es lo que hacía falta para que la marca
+                   de «sin leer» no quedara puesta sólo en el color. -->
+              <StatusDot v-if="mensaje.sin_leer" tone="accent" :label="t('lista.noLeido')" />
+              <span
+                class="min-w-0 flex-1 truncate text-label-m"
+                :class="mensaje.sin_leer ? 'font-semibold' : 'font-normal'"
+                :title="`${mensaje.de} <${mensaje.direccion}>`">
+                {{ mensaje.de }}
+              </span>
+              <span class="shrink-0 text-label-xs font-normal text-tx-muted tabular-nums">
+                {{ cuandoLlego(mensaje.fecha) }}
+              </span>
             </span>
-            <span class="shrink-0 text-label-xs font-normal text-tx-muted tabular-nums">
-              {{ cuandoLlego(mensaje.fecha) }}
+            <span class="flex w-full min-w-0 items-center gap-1">
+              <span
+                class="min-w-0 flex-1 truncate text-body-s font-normal"
+                :class="mensaje.sin_leer ? '' : 'text-tx-muted'">
+                {{ mensaje.asunto || t('lista.sinAsunto') }}
+              </span>
+              <span
+                v-if="mensaje.con_adjuntos"
+                class="shrink-0"
+                :title="t('lista.conAdjuntos')"
+                role="img"
+                :aria-label="t('lista.conAdjuntos')">
+                <ThemeIcon name="mail-attachment-symbolic" type="symbol" :size="16" />
+              </span>
             </span>
-          </span>
-          <span class="flex w-full min-w-0 items-center gap-1">
-            <span
-              class="min-w-0 flex-1 truncate text-body-s font-normal"
-              :class="mensaje.sin_leer ? '' : 'text-tx-muted'">
-              {{ mensaje.asunto || t('lista.sinAsunto') }}
+            <!-- De qué cuenta es. Sólo cuando están todas juntas: con una sola a
+                 la vista, repetir su nombre en cada fila es ruido. -->
+            <span v-if="cuentaDe(mensaje)" class="truncate text-body-xs font-normal text-tx-muted">
+              {{ cuentaDe(mensaje) }}
             </span>
-            <span
-              v-if="mensaje.con_adjuntos"
-              class="shrink-0"
-              :title="t('lista.conAdjuntos')"
-              role="img"
-              :aria-label="t('lista.conAdjuntos')">
-              <ThemeIcon name="mail-attachment-symbolic" type="symbol" :size="16" />
-            </span>
-          </span>
-          <!-- De qué cuenta es. Sólo cuando están todas juntas: con una sola a
-               la vista, repetir su nombre en cada fila es ruido. -->
-          <span v-if="cuentaDe(mensaje)" class="truncate text-body-xs font-normal text-tx-muted">
-            {{ cuentaDe(mensaje) }}
-          </span>
-        </ListRow>
-      </li>
-    </ul>
+          </ListRow>
+        </li>
+      </ul>
+    </RevealTransition>
   </Panel>
 </template>

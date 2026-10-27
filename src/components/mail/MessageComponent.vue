@@ -9,11 +9,13 @@ import {
 	ListRow,
 	LoadingState,
 	Panel,
+	RevealTransition,
 } from '@vasakgroup/vue-libvasak';
 import { computed, nextTick, ref, watch } from 'vue';
 import SmimeBadges from '@/components/mail/SmimeBadges.vue';
 import type { Abierto, Adjunto, Resumen } from '@/composables/use-correo';
 import { usePreferencias } from '@/composables/use-preferencias';
+import { claveDe } from '@/tools/bandeja';
 import { coloresDelTema, conLasImagenes, documentoDe } from '@/tools/formato';
 import { interpolar } from '@/tools/interpolar';
 import { type Pane, paneVisibility } from '@/tools/panes';
@@ -244,14 +246,24 @@ async function guardar(adjunto: Adjunto) {
 	}
 }
 
+function focusBack() {
+	if (!props.abierto) return;
+	(backButton.value?.$el as HTMLElement | undefined)?.focus();
+}
+
 watch(
 	() => props.abierto,
-	async (ahora) => {
-		if (!ahora) return;
+	async () => {
 		await nextTick();
-		(backButton.value?.$el as HTMLElement | undefined)?.focus();
+		focusBack();
 	}
 );
+
+// Con `out-in` el botón del mensaje nuevo se monta después de la salida del
+// anterior: el `watch` de arriba lo busca antes y no lo encuentra.
+watch(backButton, (boton) => {
+	if (boton) focusBack();
+});
 
 const cuando = computed(() => {
 	const fecha = props.abierto?.fecha;
@@ -276,201 +288,213 @@ const cuando = computed(() => {
     scroll
     class="flex-1"
     :class="paneVisibility('message', panel)">
-    <EmptyState v-if="!abierto" size="sm" icon="" :title="t('mensaje.elegiUno')" />
+    <!-- `out-in` y no a la vez: los dos contenidos son hermanos de una columna y,
+         juntos, se apilarían un momento. Cambiar de mensaje no parpadea: `abrir`
+         deja el cuerpo en `null` y `cargando` en `true` en el mismo paso en que
+         cambia `abierto`, así que lo que entra ya trae su estado de carga, y lo
+         que sale conserva lo que se estaba leyendo (Vue no lo vuelve a dibujar).
+         Con la clave por mensaje y no por valor suelto: ver `claveDe`.
 
-    <template v-else>
-      <header class="flex flex-col gap-1 border-ui-line-weak border-b p-4">
-        <!-- Sólo en angosto: cuando entran los tres la lista está al lado y no
-             hay de dónde volver. Un botón que no lleva a ningún lado confunde. -->
-        <ActionButton
-          ref="backButton"
-          :label="t('mensaje.volver')"
-          variant="ghost"
-          size="sm"
-          icon="go-previous-symbolic"
-          class="-ml-2 mb-1 self-start @three-panes/panes:hidden"
-          @click="emit('volver')" />
-        <h1 class="break-words font-title text-lg">{{ abierto.asunto || t('lista.sinAsunto') }}</h1>
-        <p class="break-words text-body-s">
-          <span class="text-tx-muted">{{ t('mensaje.de') }}: </span>
-          <span>{{ abierto.de }}</span>
-          <!-- La dirección **siempre**, al lado del nombre y no en su lugar.
-               Ponerse de nombre «soporte@banco.com» y escribir desde otra
-               dirección es el fraude más común que hay, y mostrar sólo el
-               nombre es exactamente lo que lo hace funcionar. Va en un tono
-               distinto para que se lea como lo que es: el dato, no la firma. -->
-          <span class="text-tx-muted">&lt;{{ abierto.direccion }}&gt;</span>
-        </p>
-        <p class="text-body-xs text-tx-muted">
-          <span>{{ t('mensaje.cuando') }}: </span>{{ cuando }}
-        </p>
+         El foco al botón de volver lo reintenta `focusBack` cuando el botón
+         existe de verdad (ver el `watch` de `backButton`): el de `abierto`
+         corre cuando todavía está el contenido anterior. -->
+    <RevealTransition mode="out-in">
+      <EmptyState v-if="!abierto" size="sm" icon="" :title="t('mensaje.elegiUno')" />
 
-        <!-- Con el cuerpo traído, que es de donde sale: la lectura de la lista
-             no verifica ni descifra nada. -->
-        <SmimeBadges v-if="cuerpo" :view="smime" />
-
-        <div class="flex flex-wrap gap-2 pt-1">
-          <!-- Responder sólo cuando el mensaje ya está traído: la respuesta
-               necesita el identificador del original y la cita del texto, y las
-               dos cosas vienen con el cuerpo. Un botón que a veces arma una
-               respuesta a medias es peor que un botón que aparece un segundo
-               después. -->
+      <div v-else :key="claveDe(abierto)" class="flex min-h-0 flex-1 flex-col">
+        <header class="flex flex-col gap-1 border-ui-line-weak border-b p-4">
+          <!-- Sólo en angosto: cuando entran los tres la lista está al lado y no
+               hay de dónde volver. Un botón que no lleva a ningún lado confunde. -->
           <ActionButton
-            v-if="cuerpo"
-            :label="t('redactar.responder')"
+            ref="backButton"
+            :label="t('mensaje.volver')"
+            variant="ghost"
             size="sm"
-            @click="emit('responder')" />
-          <ActionButton
-            v-if="abierto.sin_leer"
-            :label="t('mensaje.marcarLeido')"
-            variant="secondary"
-            size="sm"
-            @click="emit('marcarLeido', abierto)" />
-          <ActionButton
-            :label="t('mensaje.archivar')"
-            variant="secondary"
-            size="sm"
-            @click="emit('archive')" />
-          <ActionButton
-            :label="t('mensaje.borrar')"
-            variant="secondary"
-            size="sm"
-            @click="emit('delete')" />
-        </div>
-      </header>
+            icon="go-previous-symbolic"
+            class="-ml-2 mb-1 self-start @three-panes/panes:hidden"
+            @click="emit('volver')" />
+          <h1 class="break-words font-title text-lg">{{ abierto.asunto || t('lista.sinAsunto') }}</h1>
+          <p class="break-words text-body-s">
+            <span class="text-tx-muted">{{ t('mensaje.de') }}: </span>
+            <span>{{ abierto.de }}</span>
+            <!-- La dirección **siempre**, al lado del nombre y no en su lugar.
+                 Ponerse de nombre «soporte@banco.com» y escribir desde otra
+                 dirección es el fraude más común que hay, y mostrar sólo el
+                 nombre es exactamente lo que lo hace funcionar. Va en un tono
+                 distinto para que se lea como lo que es: el dato, no la firma. -->
+            <span class="text-tx-muted">&lt;{{ abierto.direccion }}&gt;</span>
+          </p>
+          <p class="text-body-xs text-tx-muted">
+            <span>{{ t('mensaje.cuando') }}: </span>{{ cuando }}
+          </p>
 
-      <LoadingState v-if="cargando" size="sm" :label="t('lista.cargando')" />
+          <!-- Con el cuerpo traído, que es de donde sale: la lectura de la lista
+               no verifica ni descifra nada. -->
+          <SmimeBadges v-if="cuerpo" :view="smime" />
 
-      <template v-else-if="cuerpo">
-        <!-- Cifrado y sin poder abrirlo: el cuerpo **no se dibuja**, aunque el
-             servicio haya guardado algo. Ver `tools/smime.ts`. -->
-        <AlertMessage
-          v-if="smime.encryption === 'unavailable'"
-          tone="warning"
-          icon="channel-insecure-symbolic"
-          :title="t('smime.noSePudoAbrir')"
-          class="mx-4 mt-3">
-          {{ t('smime.noSePudoAbrirPorQue') }}
-        </AlertMessage>
-        <!-- Lo mismo, sin alarma: la lectura en vivo no descifra, y que todavía
-             no se vea no quiere decir que no se vaya a poder. -->
-        <AlertMessage
-          v-else-if="smime.encryption === 'pending'"
-          tone="info"
-          icon="channel-secure-symbolic"
-          class="mx-4 mt-3">
-          {{ t('smime.cuerpoNoDisponible') }}
-        </AlertMessage>
+          <div class="flex flex-wrap gap-2 pt-1">
+            <!-- Responder sólo cuando el mensaje ya está traído: la respuesta
+                 necesita el identificador del original y la cita del texto, y las
+                 dos cosas vienen con el cuerpo. Un botón que a veces arma una
+                 respuesta a medias es peor que un botón que aparece un segundo
+                 después. -->
+            <ActionButton
+              v-if="cuerpo"
+              :label="t('redactar.responder')"
+              size="sm"
+              @click="emit('responder')" />
+            <ActionButton
+              v-if="abierto.sin_leer"
+              :label="t('mensaje.marcarLeido')"
+              variant="secondary"
+              size="sm"
+              @click="emit('marcarLeido', abierto)" />
+            <ActionButton
+              :label="t('mensaje.archivar')"
+              variant="secondary"
+              size="sm"
+              @click="emit('archive')" />
+            <ActionButton
+              :label="t('mensaje.borrar')"
+              variant="secondary"
+              size="sm"
+              @click="emit('delete')" />
+          </div>
+        </header>
 
-        <!-- Los dos avisos existen porque callarlos hace perder cosas: un texto
-             que termina a la mitad parece un mensaje roto, y un adjunto que no
-             se nombra es un archivo que la persona no sabe que recibió. -->
-        <!-- Con nombre y tipo, que es lo que faltaba. Todavía no se pueden
-             abrir, y el aviso lo dice: enterarse de que vino un archivo y no
-             saber cuál sigue siendo perder el archivo, sólo que más despacio.
+        <LoadingState v-if="cargando" size="sm" :label="t('lista.cargando')" />
 
-             El nombre viene saneado del sincronizador. Se muestra en un `<li>`
-             y no en un enlace ni en nada que lo interprete: lo eligió quien
-             mandó el mensaje. -->
-        <AlertMessage
-          v-if="attachments.length > 0"
-          tone="info"
-          icon="mail-attachment-symbolic"
-          class="mx-4 mt-3">
-          <p>{{ t('mensaje.adjuntos') }}</p>
-          <ul class="mt-1 flex flex-col">
-            <li v-for="a in attachments" :key="a.parte">
-              <ListRow class="-mx-3 px-3 py-1">
-                <template #default>
-                  <span class="truncate text-body-s" :title="a.tipo">{{ a.nombre }}</span>
-                </template>
-                <template #trailing>
-                  <ActionButton
-                    :label="guardando.has(a.parte) ? t('mensaje.guardando') : t('mensaje.guardar')"
-                    variant="secondary"
-                    size="sm"
-                    :loading="guardando.has(a.parte)"
-                    @click="guardar(a)" />
-                </template>
-              </ListRow>
-            </li>
-          </ul>
-          <p v-if="avisoGuardar" class="mt-1 text-tx-muted" role="status">{{ avisoGuardar }}</p>
-        </AlertMessage>
-
-        <!-- El mensaje con su formato, **adentro de un contenedor cerrado**.
-             El servicio ya lo saneó; esto es la otra mitad, y ninguna reemplaza
-             a la otra. `sandbox` vacío es el máximo de restricciones: sin
-             permiso para ejecutar nada, sin identidad propia, sin formularios y
-             sin poder navegar la ventana que lo contiene. Aunque un `<script>`
-             se hubiera escapado del saneado, acá no corre.
-
-             El documento que va adentro trae además su propia política, que no
-             deja cargar nada. Ver `tools/formato.ts`. -->
-        <template v-if="smime.bodyHidden"></template>
-        <template v-else-if="conFormato && formato">
-          <!-- El botón existe porque la decisión es de la persona y no de quien
-               escribió el correo. Se va en cuanto se aprieta: lo que queda es lo
-               que no se pudo traer, si hubo algo.
-
-               `role="status"` lo pone el aviso del sistema por el tono. -->
+        <template v-else-if="cuerpo">
+          <!-- Cifrado y sin poder abrirlo: el cuerpo **no se dibuja**, aunque el
+               servicio haya guardado algo. Ver `tools/smime.ts`. -->
           <AlertMessage
-            v-if="formato.imagenes_bloqueadas > 0 && imagenes.size === 0"
-            tone="info"
-            icon="image-missing-symbolic"
-            class="mx-4 mt-3">
-            {{ blockedImages(formato.imagenes_bloqueadas) }}
-            <template #actions>
-              <ActionButton
-                :label="trayendo ? t('mensaje.trayendoImagenes') : t('mensaje.mostrarImagenes')"
-                variant="secondary"
-                size="sm"
-                :disabled="trayendo"
-                @click="mostrarLasImagenes()" />
-            </template>
-          </AlertMessage>
-          <AlertMessage
-            v-else-if="falloAlTraer > 0"
+            v-if="smime.encryption === 'unavailable'"
             tone="warning"
-            icon="dialog-warning-symbolic"
+            icon="channel-insecure-symbolic"
+            :title="t('smime.noSePudoAbrir')"
             class="mx-4 mt-3">
-            {{ interpolar(t('mensaje.imagenesQueFallaron'), falloAlTraer) }}
+            {{ t('smime.noSePudoAbrirPorQue') }}
           </AlertMessage>
-          <iframe
-            :srcdoc="documento"
-            sandbox=""
-            referrerpolicy="no-referrer"
-            class="min-h-0 w-full flex-1 border-0"
-            :title="t('mensaje.cuerpo')"></iframe>
+          <!-- Lo mismo, sin alarma: la lectura en vivo no descifra, y que todavía
+               no se vea no quiere decir que no se vaya a poder. -->
+          <AlertMessage
+            v-else-if="smime.encryption === 'pending'"
+            tone="info"
+            icon="channel-secure-symbolic"
+            class="mx-4 mt-3">
+            {{ t('smime.cuerpoNoDisponible') }}
+          </AlertMessage>
+
+          <!-- Los dos avisos existen porque callarlos hace perder cosas: un texto
+               que termina a la mitad parece un mensaje roto, y un adjunto que no
+               se nombra es un archivo que la persona no sabe que recibió. -->
+          <!-- Con nombre y tipo, que es lo que faltaba. Todavía no se pueden
+               abrir, y el aviso lo dice: enterarse de que vino un archivo y no
+               saber cuál sigue siendo perder el archivo, sólo que más despacio.
+
+               El nombre viene saneado del sincronizador. Se muestra en un `<li>`
+               y no en un enlace ni en nada que lo interprete: lo eligió quien
+               mandó el mensaje. -->
+          <AlertMessage
+            v-if="attachments.length > 0"
+            tone="info"
+            icon="mail-attachment-symbolic"
+            class="mx-4 mt-3">
+            <p>{{ t('mensaje.adjuntos') }}</p>
+            <ul class="mt-1 flex flex-col">
+              <li v-for="a in attachments" :key="a.parte">
+                <ListRow class="-mx-3 px-3 py-1">
+                  <template #default>
+                    <span class="truncate text-body-s" :title="a.tipo">{{ a.nombre }}</span>
+                  </template>
+                  <template #trailing>
+                    <ActionButton
+                      :label="guardando.has(a.parte) ? t('mensaje.guardando') : t('mensaje.guardar')"
+                      variant="secondary"
+                      size="sm"
+                      :loading="guardando.has(a.parte)"
+                      @click="guardar(a)" />
+                  </template>
+                </ListRow>
+              </li>
+            </ul>
+            <p v-if="avisoGuardar" class="mt-1 text-tx-muted" role="status">{{ avisoGuardar }}</p>
+          </AlertMessage>
+
+          <!-- El mensaje con su formato, **adentro de un contenedor cerrado**.
+               El servicio ya lo saneó; esto es la otra mitad, y ninguna reemplaza
+               a la otra. `sandbox` vacío es el máximo de restricciones: sin
+               permiso para ejecutar nada, sin identidad propia, sin formularios y
+               sin poder navegar la ventana que lo contiene. Aunque un `<script>`
+               se hubiera escapado del saneado, acá no corre.
+
+               El documento que va adentro trae además su propia política, que no
+               deja cargar nada. Ver `tools/formato.ts`. -->
+          <template v-if="smime.bodyHidden"></template>
+          <template v-else-if="conFormato && formato">
+            <!-- El botón existe porque la decisión es de la persona y no de quien
+                 escribió el correo. Se va en cuanto se aprieta: lo que queda es lo
+                 que no se pudo traer, si hubo algo.
+
+                 `role="status"` lo pone el aviso del sistema por el tono. -->
+            <AlertMessage
+              v-if="formato.imagenes_bloqueadas > 0 && imagenes.size === 0"
+              tone="info"
+              icon="image-missing-symbolic"
+              class="mx-4 mt-3">
+              {{ blockedImages(formato.imagenes_bloqueadas) }}
+              <template #actions>
+                <ActionButton
+                  :label="trayendo ? t('mensaje.trayendoImagenes') : t('mensaje.mostrarImagenes')"
+                  variant="secondary"
+                  size="sm"
+                  :disabled="trayendo"
+                  @click="mostrarLasImagenes()" />
+              </template>
+            </AlertMessage>
+            <AlertMessage
+              v-else-if="falloAlTraer > 0"
+              tone="warning"
+              icon="dialog-warning-symbolic"
+              class="mx-4 mt-3">
+              {{ interpolar(t('mensaje.imagenesQueFallaron'), falloAlTraer) }}
+            </AlertMessage>
+            <iframe
+              :srcdoc="documento"
+              sandbox=""
+              referrerpolicy="no-referrer"
+              class="min-h-0 w-full flex-1 border-0"
+              :title="t('mensaje.cuerpo')"></iframe>
+          </template>
+
+          <!-- `white-space: pre-wrap` y no HTML.
+               El texto lo escribió cualquiera que sepa la dirección de la persona:
+               se muestra, no se interpreta. Vue escapa el contenido de una
+               interpolación, así que nada de acá se convierte en marcado ni carga
+               una imagen remota — que es lo que le confirmaría al remitente que se
+               leyó, y desde qué dirección IP. -->
+          <pre
+            v-else
+            class="min-w-0 flex-1 whitespace-pre-wrap break-words p-4 font-sans text-body-m">{{ cuerpo.texto }}</pre>
+
+          <AlertMessage v-if="cuerpo.recortado" tone="info" icon="dialog-information-symbolic" class="mx-4 mb-3">
+            {{ t('mensaje.recortado') }}
+          </AlertMessage>
+
+          <!-- Poder volver al texto pelado es parte de la función, no un resto de
+               la versión anterior: es la vista que sirve cuando un mensaje se ve
+               raro o cuando no se le tiene confianza a quien lo mandó. -->
+          <div class="flex items-center gap-2 px-4 pb-4">
+            <ActionButton
+              v-if="formato && !smime.bodyHidden"
+              :label="conFormato ? t('mensaje.verTextoPelado') : t('mensaje.verConFormato')"
+              variant="secondary"
+              size="sm"
+              @click="conFormato = !conFormato" />
+            <span v-if="!formato && !smime.bodyHidden" class="text-body-xs text-tx-muted">{{ t('mensaje.soloTexto') }}</span>
+          </div>
         </template>
-
-        <!-- `white-space: pre-wrap` y no HTML.
-             El texto lo escribió cualquiera que sepa la dirección de la persona:
-             se muestra, no se interpreta. Vue escapa el contenido de una
-             interpolación, así que nada de acá se convierte en marcado ni carga
-             una imagen remota — que es lo que le confirmaría al remitente que se
-             leyó, y desde qué dirección IP. -->
-        <pre
-          v-else
-          class="min-w-0 flex-1 whitespace-pre-wrap break-words p-4 font-sans text-body-m">{{ cuerpo.texto }}</pre>
-
-        <AlertMessage v-if="cuerpo.recortado" tone="info" icon="dialog-information-symbolic" class="mx-4 mb-3">
-          {{ t('mensaje.recortado') }}
-        </AlertMessage>
-
-        <!-- Poder volver al texto pelado es parte de la función, no un resto de
-             la versión anterior: es la vista que sirve cuando un mensaje se ve
-             raro o cuando no se le tiene confianza a quien lo mandó. -->
-        <div class="flex items-center gap-2 px-4 pb-4">
-          <ActionButton
-            v-if="formato && !smime.bodyHidden"
-            :label="conFormato ? t('mensaje.verTextoPelado') : t('mensaje.verConFormato')"
-            variant="secondary"
-            size="sm"
-            @click="conFormato = !conFormato" />
-          <span v-if="!formato && !smime.bodyHidden" class="text-body-xs text-tx-muted">{{ t('mensaje.soloTexto') }}</span>
-        </div>
-      </template>
-    </template>
+      </div>
+    </RevealTransition>
   </Panel>
 </template>
