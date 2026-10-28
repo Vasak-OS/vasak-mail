@@ -1,6 +1,6 @@
 [package]
 name = "vasak-mail"
-version = "0.28.2"
+version = "0.28.3"
 description = "El correo de VasakOS"
 authors = ["Vasak Group", "Joaquin (Pato) Decima"]
 edition = "2021"
@@ -76,7 +76,7 @@ futures-util = "0.3"
 # El cliente del almacén del sistema y de la interfaz en vivo del
 # sincronizador, compartido con calendario, contactos y el escritorio:
 # comprueba al dueño del nombre antes de creerle o mandarle nada.
-tauri-plugin-vsk-store = "0.2"
+tauri-plugin-vsk-store = "0.3.0"
 # Para el memfd sellado con el que viaja el `.p12` y su contraseña al importar una
 # identidad S/MIME. Es Rust puro, sin soname nuevo: no toca las listas de
 # dependencias de sistema. Mismo crate (y misma versión resuelta) que usa
