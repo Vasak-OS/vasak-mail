@@ -973,6 +973,167 @@ pub async fn cancel_followup(account_id: &str, message_id: &str) -> Result<Strin
     outcome_of(&llamar("CancelFollowup", &(account_id, message_id)).await?)
 }
 
+// ── Reglas de correo ───────────────────────────────────────────────────────────
+//
+// El motor de reglas vive en el servicio: acá sólo se le pide el CRUD por el
+// dueño comprobado y se parsea lo que publica. Los nombres de los campos van con
+// el nombre del cable (renames al español): si uno se renombrara de un lado y no
+// del otro, la regla aparecería con el campo vacío sin ningún error.
+
+/// Con qué criterio una condición compara un campo del mensaje.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub enum Operador {
+    #[serde(rename = "todas")]
+    All,
+    #[serde(rename = "cualquiera")]
+    Any,
+}
+
+/// El campo del mensaje que mira una condición.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub enum Campo {
+    #[serde(rename = "de")]
+    From,
+    #[serde(rename = "para")]
+    To,
+    #[serde(rename = "cc")]
+    Cc,
+    #[serde(rename = "asunto")]
+    Subject,
+    #[serde(rename = "responder_a")]
+    ReplyTo,
+    #[serde(rename = "list_id")]
+    ListId,
+    #[serde(rename = "tamano")]
+    Size,
+    #[serde(rename = "tiene_adjuntos")]
+    HasAttachments,
+}
+
+/// La prueba que aplica una condición sobre el campo.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub enum Prueba {
+    #[serde(rename = "contiene")]
+    Contains,
+    #[serde(rename = "igual")]
+    Equals,
+    #[serde(rename = "empieza_con")]
+    StartsWith,
+    #[serde(rename = "mayor")]
+    GreaterThan,
+    #[serde(rename = "menor")]
+    LessThan,
+}
+
+/// Una condición: `campo` `prueba` `valor`, quizá negada.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct Condicion {
+    #[serde(rename = "campo")]
+    pub field: Campo,
+    #[serde(rename = "prueba")]
+    pub test: Prueba,
+    #[serde(rename = "valor")]
+    pub value: String,
+    #[serde(rename = "negar")]
+    pub negate: bool,
+}
+
+/// Cómo se combinan las condiciones de una regla.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct Coincidencia {
+    #[serde(rename = "operador")]
+    pub operator: Operador,
+    #[serde(rename = "condiciones")]
+    pub conditions: Vec<Condicion>,
+}
+
+/// Lo que hace una regla cuando coincide.
+///
+/// Externally-tagged a propósito: las variantes unitarias van como cadena
+/// (`"marcar_leido"`) y `mover_a` como objeto (`{"mover_a": "Carpeta"}`), que es
+/// exactamente la forma del cable.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub enum Accion {
+    #[serde(rename = "marcar_leido")]
+    MarkRead,
+    #[serde(rename = "destacar")]
+    Flag,
+    #[serde(rename = "borrar")]
+    Delete,
+    #[serde(rename = "mover_a")]
+    MoveTo(String),
+}
+
+/// Una regla de correo, tal como la publica `ListRules` y como la toman
+/// `CreateRule`/`UpdateRule`.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct Regla {
+    #[serde(default)]
+    pub id: String,
+    #[serde(rename = "nombre")]
+    pub name: String,
+    #[serde(rename = "activa")]
+    pub active: bool,
+    #[serde(rename = "coincidencia")]
+    pub matching: Coincidencia,
+    #[serde(rename = "acciones")]
+    pub actions: Vec<Accion>,
+    #[serde(rename = "detener")]
+    pub stop: bool,
+}
+
+/// El conjunto entero de reglas de una cuenta, tal como lo publica `ListRules`.
+///
+/// `watermark` la publica el servicio para su sincronización y la ventana no la
+/// edita: se parsea como JSON opaco para no romperse si el servicio le agrega
+/// campos. [`list_rules`] devuelve sólo `rules`, que es lo único que la ventana
+/// muestra; el orden del vector **es** la prioridad.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct ConjuntoReglas {
+    #[serde(rename = "cuenta")]
+    pub account: String,
+    pub version: u32,
+    #[serde(rename = "reglas")]
+    pub rules: Vec<Regla>,
+    #[serde(rename = "marca_de_agua", default)]
+    pub watermark: Option<serde_json::Value>,
+}
+
+/// Las reglas de una cuenta, en orden de prioridad.
+pub async fn list_rules(account_id: &str) -> Result<Vec<Regla>, String> {
+    let json = llamar("ListRules", &(account_id,)).await?;
+    let conjunto: ConjuntoReglas =
+        serde_json::from_str(&json).map_err(|e| format!("no se pudieron leer las reglas: {e}"))?;
+    Ok(conjunto.rules)
+}
+
+/// Crea una regla. `rule_json` es una [`Regla`] serializada (sin `id`, que lo
+/// asigna el servicio). Devuelve el id (UUID) asignado. Puede fallar con el
+/// `AccessDenied` del gate o con `InvalidArgs` —bandeja sin sincronizar, JSON
+/// malo o topes excedidos—, que `llamar` propaga como texto.
+pub async fn create_rule(account_id: &str, rule_json: &str) -> Result<String, String> {
+    llamar("CreateRule", &(account_id, rule_json)).await
+}
+
+/// Reemplaza una regla existente. `rule_json` es una [`Regla`] serializada con su
+/// `id`.
+pub async fn update_rule(account_id: &str, rule_json: &str) -> Result<(), String> {
+    llamar_sin_respuesta("UpdateRule", &(account_id, rule_json)).await
+}
+
+/// Borra una regla por su id.
+pub async fn delete_rule(account_id: &str, rule_id: &str) -> Result<(), String> {
+    llamar_sin_respuesta("DeleteRule", &(account_id, rule_id)).await
+}
+
+/// Reordena las reglas: `ids` en el nuevo orden de prioridad. Se serializa a un
+/// array JSON para el `ids_json` que espera el servicio.
+pub async fn reorder_rules(account_id: &str, ids: Vec<String>) -> Result<(), String> {
+    let ids_json = serde_json::to_string(&ids)
+        .map_err(|e| format!("no se pudo serializar el orden de reglas: {e}"))?;
+    llamar_sin_respuesta("ReorderRules", &(account_id, ids_json)).await
+}
+
 // ── Identidad S/MIME ─────────────────────────────────────────────────────────
 //
 // El certificado y su clave los guarda el sincronizador (en `vasak-keyring`),
@@ -1094,6 +1255,12 @@ pub async fn quitar_identidad_smime(account_id: &str) -> Result<(), String> {
 /// El evento que ve la ventana cuando llega correo.
 pub const EVENTO: &str = "correo-cambio";
 
+/// El evento que ve la ventana cuando cambian las reglas de una cuenta. Sin
+/// detalle, como el de correo: dice «volvé a leer las reglas» y la ventana
+/// relee con [`list_rules`]. Se emite aparte para no obligar a releer el correo
+/// —que es frecuente— cada vez que se toca una regla, ni al revés.
+pub const EVENTO_REGLAS: &str = "reglas-cambio";
+
 /// Escucha al sincronizador y le avisa a la ventana.
 ///
 /// Sin esto habría que apretar «Actualizar» para enterarse de algo que el
@@ -1179,6 +1346,16 @@ fn owner_rule() -> zbus::Result<zbus::MatchRule<'static>> {
         .build())
 }
 
+/// Qué dice cada señal que llega por el bus. Las de correo quieren lo mismo
+/// —«relé el correo»—; `RulesChanged` pide releer las reglas; el cambio de dueño
+/// obliga a comprobar desde cero.
+#[derive(Clone, Copy)]
+enum Aviso {
+    Correo,
+    Reglas,
+    DuenoCambio,
+}
+
 async fn seguir(app: &tauri::AppHandle) -> Result<(), String> {
     use futures_util::StreamExt;
     use tauri::Emitter;
@@ -1198,8 +1375,19 @@ async fn seguir(app: &tauri::AppHandle) -> Result<(), String> {
         let flujo = zbus::MessageStream::for_match_rule(regla, conexion, None)
             .await
             .map_err(|e| format!("no se pudo escuchar «{señal}»: {e}"))?;
-        flujos.push(flujo.map(|m| m.map(|_| false)).boxed());
+        flujos.push(flujo.map(|m| m.map(|_| Aviso::Correo)).boxed());
     }
+    // Las reglas van en su propio evento: tocar una regla es raro, llega correo
+    // seguido, y no se quiere releer lo uno por lo otro.
+    let reglas = zbus::MessageStream::for_match_rule(
+        live_rule(&owner, "RulesChanged")
+            .map_err(|e| format!("no se pudo armar el filtro de «RulesChanged»: {e}"))?,
+        conexion,
+        None,
+    )
+    .await
+    .map_err(|e| format!("no se pudo escuchar «RulesChanged»: {e}"))?;
+    flujos.push(reglas.map(|m| m.map(|_| Aviso::Reglas)).boxed());
     let dueno = zbus::MessageStream::for_match_rule(
         owner_rule().map_err(|e| format!("no se pudo armar el filtro del dueño: {e}"))?,
         conexion,
@@ -1207,30 +1395,35 @@ async fn seguir(app: &tauri::AppHandle) -> Result<(), String> {
     )
     .await
     .map_err(|e| format!("no se pudo escuchar al dueño del nombre: {e}"))?;
-    flujos.push(dueno.map(|m| m.map(|_| true)).boxed());
+    flujos.push(dueno.map(|m| m.map(|_| Aviso::DuenoCambio)).boxed());
     let mut avisos = futures_util::stream::select_all(flujos);
 
     while let Some(aviso) = avisos.next().await {
-        let Ok(owner_changed) = aviso else {
+        let Ok(aviso) = aviso else {
             continue;
         };
         // Se juntan los que llegan seguidos: la ventana relee una vez. Sin
         // detalle: el evento dice «volvé a leer», y la ventana relee y ve el
         // estado completo.
-        let mut changed = !owner_changed;
-        let mut gone = owner_changed;
+        let mut changed = matches!(aviso, Aviso::Correo);
+        let mut rules_changed = matches!(aviso, Aviso::Reglas);
+        let mut gone = matches!(aviso, Aviso::DuenoCambio);
         if !gone {
             tokio::time::sleep(SETTLE).await;
         }
         while let Some(Some(next)) = futures_util::FutureExt::now_or_never(avisos.next()) {
             match next {
-                Ok(true) => gone = true,
-                Ok(false) => changed = true,
+                Ok(Aviso::Correo) => changed = true,
+                Ok(Aviso::Reglas) => rules_changed = true,
+                Ok(Aviso::DuenoCambio) => gone = true,
                 Err(_) => {}
             }
         }
         if changed {
             let _ = app.emit(EVENTO, ());
+        }
+        if rules_changed {
+            let _ = app.emit(EVENTO_REGLAS, ());
         }
         if gone {
             // Otro tiene el nombre, o se fue: se vuelve a comprobar desde cero.
@@ -2441,6 +2634,32 @@ mod tests {
             assert_eq!((account_id.as_str(), message_id.as_str()), ("a", "<m2@x>"));
             "\"cancelado\"".into()
         }
+
+        // Reglas de correo. ListRules devuelve el ConjuntoReglas entero (con
+        // version/marca que la ventana ignora); CreateRule el id crudo (no entre
+        // comillas, como el servicio); el resto no contesta.
+        async fn list_rules(&self, account_id: String) -> String {
+            assert_eq!(account_id, "a");
+            r#"{"cuenta":"a","version":1,"marca_de_agua":{"uidvalidity":1,"uid_desde":100},"reglas":[{"id":"r1","nombre":"Banco","activa":true,"coincidencia":{"operador":"todas","condiciones":[{"campo":"de","prueba":"contiene","valor":"banco","negar":false}]},"acciones":["marcar_leido",{"mover_a":"Bancos"}],"detener":false}]}"#.into()
+        }
+
+        async fn create_rule(&self, account_id: String, _rule_json: String) -> String {
+            assert_eq!(account_id, "a");
+            "regla-nueva".into()
+        }
+
+        async fn update_rule(&self, account_id: String, _rule_json: String) {
+            assert_eq!(account_id, "a");
+        }
+
+        async fn delete_rule(&self, account_id: String, rule_id: String) {
+            assert_eq!((account_id.as_str(), rule_id.as_str()), ("a", "r1"));
+        }
+
+        async fn reorder_rules(&self, account_id: String, ids_json: String) {
+            assert_eq!(account_id, "a");
+            assert_eq!(ids_json, r#"["r2","r1"]"#);
+        }
     }
 
     /// El camino de lectura del correo, de punta a punta por el cliente del
@@ -2536,6 +2755,44 @@ mod tests {
             Ok("cancelado".to_string())
         );
 
+        // Reglas: list parsea el ConjuntoReglas y devuelve sólo las reglas en
+        // orden; create devuelve el id crudo; update/delete/reorder no contestan.
+        assert_eq!(
+            crate::comandos::list_rules("a".into()).await,
+            Ok(vec![Regla {
+                id: "r1".into(),
+                name: "Banco".into(),
+                active: true,
+                matching: Coincidencia {
+                    operator: Operador::All,
+                    conditions: vec![Condicion {
+                        field: Campo::From,
+                        test: Prueba::Contains,
+                        value: "banco".into(),
+                        negate: false,
+                    }],
+                },
+                actions: vec![Accion::MarkRead, Accion::MoveTo("Bancos".into())],
+                stop: false,
+            }])
+        );
+        assert_eq!(
+            crate::comandos::create_rule("a".into(), "{}".into()).await,
+            Ok("regla-nueva".to_string())
+        );
+        assert_eq!(
+            crate::comandos::update_rule("a".into(), "{}".into()).await,
+            Ok(())
+        );
+        assert_eq!(
+            crate::comandos::delete_rule("a".into(), "r1".into()).await,
+            Ok(())
+        );
+        assert_eq!(
+            crate::comandos::reorder_rules("a".into(), vec!["r2".into(), "r1".into()]).await,
+            Ok(())
+        );
+
         // Con el «no» al almacén no se va al servidor: se dice «sin permiso».
         *mode.lock().unwrap() = "denied";
         assert_eq!(
@@ -2545,6 +2802,40 @@ mod tests {
 
         // Y, por el mismo servidor, importar la identidad S/MIME.
         importar_por_el_bus(&sync).await;
+    }
+
+    /// El JSON de una `Regla` usa los nombres del cable del servicio: acciones
+    /// externally-tagged (`marcar_leido` suelto, `mover_a` como objeto) y los
+    /// renames en español. Si alguno se desalinea, la lista aparecería vacía o
+    /// una acción se perdería sin error.
+    #[test]
+    fn una_regla_va_y_vuelve_con_los_nombres_del_cable() {
+        let regla = Regla {
+            id: "r1".into(),
+            name: "Banco".into(),
+            active: true,
+            matching: Coincidencia {
+                operator: Operador::All,
+                conditions: vec![Condicion {
+                    field: Campo::Subject,
+                    test: Prueba::StartsWith,
+                    value: "Factura".into(),
+                    negate: true,
+                }],
+            },
+            actions: vec![Accion::MarkRead, Accion::MoveTo("Bancos".into())],
+            stop: false,
+        };
+        let json = serde_json::to_string(&regla).unwrap();
+        assert!(
+            json.contains(r#""acciones":["marcar_leido",{"mover_a":"Bancos"}]"#),
+            "{json}"
+        );
+        assert!(
+            json.contains(r#""campo":"asunto","prueba":"empieza_con""#),
+            "{json}"
+        );
+        assert_eq!(serde_json::from_str::<Regla>(&json).unwrap(), regla);
     }
 
     // ── Identidad S/MIME: el memfd sellado y el código de error ──────────────

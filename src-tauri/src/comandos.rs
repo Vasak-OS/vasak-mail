@@ -5,8 +5,8 @@
 use tauri::Manager;
 
 use crate::correo::{
-    self, Abierto, AdjuntoParaMandar, Borrador, Casilla, Cuenta, EstadoSmime, Pospuesto, Resumen,
-    Saliente, Seguimiento,
+    self, Abierto, AdjuntoParaMandar, Borrador, Casilla, Cuenta, EstadoSmime, Pospuesto, Regla,
+    Resumen, Saliente, Seguimiento,
 };
 use crate::mailto::{MailtoDraft, PendingMailto};
 use crate::store_access;
@@ -113,6 +113,36 @@ pub async fn list_followups(account_id: String) -> Result<Vec<Seguimiento>, Stri
 #[tauri::command]
 pub async fn cancel_followup(account_id: String, message_id: String) -> Result<String, String> {
     correo::cancel_followup(&account_id, &message_id).await
+}
+
+/// Las reglas de correo de una cuenta, en orden de prioridad.
+#[tauri::command]
+pub async fn list_rules(account_id: String) -> Result<Vec<Regla>, String> {
+    correo::list_rules(&account_id).await
+}
+
+/// Crea una regla y devuelve su id. `rule_json` es una `Regla` serializada.
+#[tauri::command]
+pub async fn create_rule(account_id: String, rule_json: String) -> Result<String, String> {
+    correo::create_rule(&account_id, &rule_json).await
+}
+
+/// Reemplaza una regla existente.
+#[tauri::command]
+pub async fn update_rule(account_id: String, rule_json: String) -> Result<(), String> {
+    correo::update_rule(&account_id, &rule_json).await
+}
+
+/// Borra una regla por su id.
+#[tauri::command]
+pub async fn delete_rule(account_id: String, rule_id: String) -> Result<(), String> {
+    correo::delete_rule(&account_id, &rule_id).await
+}
+
+/// Reordena las reglas: `ids` en el nuevo orden de prioridad.
+#[tauri::command]
+pub async fn reorder_rules(account_id: String, ids: Vec<String>) -> Result<(), String> {
+    correo::reorder_rules(&account_id, ids).await
 }
 
 /// Manda un mensaje a la papelera del servidor.
