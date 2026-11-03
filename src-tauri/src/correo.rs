@@ -834,6 +834,16 @@ pub struct Borrador {
     /// reescribe idéntica y el campo sólo aparece cuando de verdad se firma.
     #[serde(default, skip_serializing_if = "is_false", rename = "firmar")]
     pub sign: bool,
+    /// Cuándo recordar este mensaje si no hay respuesta, en epoch segundos. En el
+    /// cable es `recordar_en`, como lo llama el servicio, y viaja como un campo
+    /// más del `SendMessage` que ya existe. Si no se pide seguimiento **no se
+    /// serializa**: la cola y los borradores viejos se reescriben idénticos.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "recordar_en"
+    )]
+    pub remind_at: Option<i64>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -896,6 +906,71 @@ pub async fn descartar(id: &str) -> Result<(), String> {
     llamar_sin_respuesta("DiscardOutgoing", &(id,))
         .await
         .map_err(|e| format!("no se pudo descartar: {e}"))
+}
+
+// ── Posponer y seguimiento ─────────────────────────────────────────────────────
+//
+// La lógica vive en el servicio: acá sólo se le pide por el dueño comprobado y se
+// leen sus respuestas. Posponer saca un mensaje de la vista hasta una hora; el
+// seguimiento recuerda un mensaje enviado si no hubo respuesta.
+
+/// Un mensaje pospuesto, tal como lo publica `ListSnoozed`. Campos con el nombre
+/// del cable: si uno se renombrara de un lado y no del otro, la lista aparecería
+/// vacía sin ningún error.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct Pospuesto {
+    pub message_id: String,
+    pub casilla_origen: String,
+    /// El UID en su casilla de origen, para poder devolverlo. Puede faltar.
+    #[serde(default)]
+    pub uid: Option<u32>,
+    #[serde(default)]
+    pub uidvalidity: Option<u32>,
+    /// Cuándo vuelve a la vista, en epoch segundos.
+    pub volver_a: i64,
+}
+
+/// Un seguimiento pendiente, tal como lo publica `ListFollowups`.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct Seguimiento {
+    pub message_id: String,
+    pub destinatarios: Vec<String>,
+    /// Cuándo recordar el mensaje si no hubo respuesta, en epoch segundos.
+    pub recordar_en: i64,
+}
+
+/// Pospone un mensaje hasta `return_at` (epoch segundos). El servicio lo saca de
+/// la vista y lo devuelve a su casilla cuando llega la hora.
+pub async fn snooze_message(
+    account_id: &str,
+    mailbox: &str,
+    uid: u32,
+    return_at: i64,
+) -> Result<String, String> {
+    outcome_of(&llamar("SnoozeMessage", &(account_id, mailbox, uid, return_at)).await?)
+}
+
+/// Los mensajes pospuestos de una cuenta.
+pub async fn list_snoozed(account_id: &str) -> Result<Vec<Pospuesto>, String> {
+    let json = llamar("ListSnoozed", &(account_id,)).await?;
+    serde_json::from_str(&json).map_err(|e| format!("no se pudo leer los pospuestos: {e}"))
+}
+
+/// Cancela un posponer. El servicio contesta `devuelto`, `ya_no_estaba` —ya había
+/// vuelto solo— o `no_estaba`.
+pub async fn cancel_snooze(account_id: &str, message_id: &str) -> Result<String, String> {
+    outcome_of(&llamar("CancelSnooze", &(account_id, message_id)).await?)
+}
+
+/// Los seguimientos pendientes de una cuenta.
+pub async fn list_followups(account_id: &str) -> Result<Vec<Seguimiento>, String> {
+    let json = llamar("ListFollowups", &(account_id,)).await?;
+    serde_json::from_str(&json).map_err(|e| format!("no se pudo leer los seguimientos: {e}"))
+}
+
+/// Cancela un seguimiento. El servicio contesta `cancelado` o `no_estaba`.
+pub async fn cancel_followup(account_id: &str, message_id: &str) -> Result<String, String> {
+    outcome_of(&llamar("CancelFollowup", &(account_id, message_id)).await?)
 }
 
 // ── Identidad S/MIME ─────────────────────────────────────────────────────────
@@ -2328,6 +2403,44 @@ mod tests {
             );
             "\"entero\"".into()
         }
+
+        // Posponer y seguimiento: contestan lo que el servicio de verdad —el
+        // `MoveOutcome` o el texto del resultado, siempre JSON— para ver que el
+        // cliente los arma y los lee bien.
+        async fn snooze_message(
+            &self,
+            account_id: String,
+            mailbox: String,
+            uid: u32,
+            return_at: i64,
+        ) -> String {
+            assert_eq!(
+                (account_id.as_str(), mailbox.as_str(), uid, return_at),
+                ("a", "INBOX", 7, 1000)
+            );
+            "\"entero\"".into()
+        }
+
+        async fn list_snoozed(&self, account_id: String) -> String {
+            assert_eq!(account_id, "a");
+            r#"[{"message_id":"<m1@x>","casilla_origen":"INBOX","uid":7,"uidvalidity":1,"volver_a":1000}]"#.into()
+        }
+
+        async fn cancel_snooze(&self, account_id: String, message_id: String) -> String {
+            assert_eq!((account_id.as_str(), message_id.as_str()), ("a", "<m1@x>"));
+            "\"devuelto\"".into()
+        }
+
+        async fn list_followups(&self, account_id: String) -> String {
+            assert_eq!(account_id, "a");
+            r#"[{"message_id":"<m2@x>","destinatarios":["ana@ejemplo.com"],"recordar_en":2000}]"#
+                .into()
+        }
+
+        async fn cancel_followup(&self, account_id: String, message_id: String) -> String {
+            assert_eq!((account_id.as_str(), message_id.as_str()), ("a", "<m2@x>"));
+            "\"cancelado\"".into()
+        }
     }
 
     /// El camino de lectura del correo, de punta a punta por el cliente del
@@ -2387,6 +2500,40 @@ mod tests {
         assert_eq!(
             crate::comandos::delete_message("a".into(), "INBOX".into(), 7).await,
             Ok("entero".to_string())
+        );
+
+        // Posponer y seguimiento van por el mismo sincronizador en vivo. El
+        // posponer traduce el `MoveOutcome`; las listas se parsean a sus structs;
+        // cancelar devuelve el texto del resultado.
+        assert_eq!(
+            crate::comandos::snooze_message("a".into(), "INBOX".into(), 7, 1000).await,
+            Ok("entero".to_string())
+        );
+        assert_eq!(
+            crate::comandos::list_snoozed("a".into()).await,
+            Ok(vec![Pospuesto {
+                message_id: "<m1@x>".into(),
+                casilla_origen: "INBOX".into(),
+                uid: Some(7),
+                uidvalidity: Some(1),
+                volver_a: 1000,
+            }])
+        );
+        assert_eq!(
+            crate::comandos::cancel_snooze("a".into(), "<m1@x>".into()).await,
+            Ok("devuelto".to_string())
+        );
+        assert_eq!(
+            crate::comandos::list_followups("a".into()).await,
+            Ok(vec![Seguimiento {
+                message_id: "<m2@x>".into(),
+                destinatarios: vec!["ana@ejemplo.com".into()],
+                recordar_en: 2000,
+            }])
+        );
+        assert_eq!(
+            crate::comandos::cancel_followup("a".into(), "<m2@x>".into()).await,
+            Ok("cancelado".to_string())
         );
 
         // Con el «no» al almacén no se va al servidor: se dice «sin permiso».

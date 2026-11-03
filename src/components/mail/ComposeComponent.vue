@@ -20,8 +20,10 @@ import {
 	TextInput,
 } from '@vasakgroup/vue-libvasak';
 import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from 'vue';
+import MomentPicker from '@/components/mail/MomentPicker.vue';
 import type { AdjuntoParaMandar, Borrador, Cuenta } from '@/composables/use-correo';
-import { elegida, momentos, paraElServicio } from '@/tools/programar';
+import { interpolar } from '@/tools/interpolar';
+import { elegida, enSegundos, momentoLegible, momentos, paraElServicio } from '@/tools/programar';
 import { direcciones } from '@/tools/responder';
 
 const props = defineProps<{
@@ -261,6 +263,9 @@ function scheduleTyped() {
 	}
 }
 
+/** Cuándo recordar el mensaje si nadie responde. `null`: sin seguimiento. */
+const recordarEn = ref<Date | null>(null);
+
 /** El borrador con lo que hay en pantalla. */
 function armar(): Borrador {
 	return {
@@ -272,6 +277,8 @@ function armar(): Borrador {
 		adjuntos: adjuntos.value,
 		// Sólo cuando se pidió: apagado no viaja, como en el servicio.
 		firmar: sign.value || undefined,
+		// Igual: sin seguimiento el campo no viaja.
+		recordar_en: recordarEn.value ? enSegundos(recordarEn.value) : undefined,
 	};
 }
 
@@ -397,6 +404,29 @@ function cerrar() {
              no un error del formulario: los que sí entraron están en la lista de
              arriba. -->
         <p v-if="errorAdjunto" class="break-words text-body-xs text-status-warning">{{ errorAdjunto }}</p>
+
+        <!-- El seguimiento: si para esa hora nadie respondió, el servicio vuelve
+             a mostrar el mensaje. Apagado, no se manda `recordar_en`. -->
+        <div class="flex min-w-0 flex-wrap items-center gap-2">
+          <MomentPicker
+            v-if="!recordarEn"
+            :label="t('seguimiento.boton')"
+            :titulo="t('seguimiento.titulo')"
+            :confirmar="t('seguimiento.confirmar')"
+            side="top"
+            @elegir="recordarEn = $event" />
+          <template v-else>
+            <span class="min-w-0 break-words text-body-s">
+              {{ interpolar(t('seguimiento.activo'), momentoLegible(recordarEn, locale)) }}
+            </span>
+            <ActionButton
+              :label="t('seguimiento.quitar')"
+              variant="ghost"
+              size="sm"
+              @click="recordarEn = null" />
+          </template>
+          <p class="w-full text-body-xs text-tx-muted">{{ t('seguimiento.porQue') }}</p>
+        </div>
 
         <!-- Se dice porque cambia lo que la persona espera del botón: «Enviar» no
              espera al servidor, guarda el mensaje y lo manda cuando pueda. Sin

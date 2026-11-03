@@ -11,6 +11,7 @@ import { claveDe, combinados, esElMismo, TODAS } from '@/tools/bandeja';
 import { alcance, filtrados } from '@/tools/busqueda';
 import { noAntesDe, quedan } from '@/tools/deshacer';
 import type { Saneado } from '@/tools/formato';
+import { enSegundos } from '@/tools/programar';
 import type { SmimeStatus } from '@/tools/smime';
 import {
 	isStorePermissionDenied,
@@ -147,6 +148,32 @@ export interface Borrador {
 	 * espera el servicio en el cable. Ausente o `false`: no se firma.
 	 */
 	firmar?: boolean;
+	/**
+	 * Cuándo recordar este mensaje si nadie responde, en epoch **segundos**.
+	 * Ausente: sin seguimiento. Se llama `recordar_en` como en el cable.
+	 */
+	recordar_en?: number;
+}
+
+/** Un mensaje pospuesto, como lo publica `list_snoozed`. */
+export interface Pospuesto {
+	message_id: string;
+	casilla_origen: string;
+	uid?: number | null;
+	uidvalidity?: number | null;
+	/** Cuándo vuelve a la vista, en epoch segundos. */
+	volver_a: number;
+}
+
+/**
+ * Un pospuesto con la cuenta a la que pertenece y, si se pospuso en esta
+ * sesión, de qué trataba. El servicio no guarda el asunto: sin esto la lista
+ * mostraría sólo el identificador.
+ */
+export interface PospuestoVisible extends Pospuesto {
+	account_id: string;
+	asunto?: string;
+	de?: string;
 }
 
 /** Un mensaje esperando salir. */
@@ -219,6 +246,21 @@ export function useCorreo() {
 
 	const salientes = ref<Saliente[]>([]);
 	const enviando = ref(false);
+	/** Si en vez de una carpeta se está viendo la lista de pospuestos. */
+	const viendoPospuestos = ref(false);
+	const pospuestos = ref<PospuestoVisible[]>([]);
+	const cargandoPospuestos = ref(false);
+	/**
+	 * Lo último que se pospuso, mientras se pueda deshacer. `messageId` es
+	 * `null` si el servicio no lo listó: se avisa igual, pero sin deshacer.
+	 */
+	const pospuestoReciente = ref<{
+		accountId: string;
+		messageId: string | null;
+		volverA: Date;
+	} | null>(null);
+	/** De qué trataba cada pospuesto de esta sesión, por identificador. */
+	const detalleDePospuestos = new Map<string, { asunto: string; de: string }>();
 	const cargandoLista = ref(false);
 	const cargandoMensaje = ref(false);
 	/** Lo que impidió leer algo, en el idioma de lo que la persona puede hacer. */
@@ -319,6 +361,9 @@ export function useCorreo() {
 	async function reload() {
 		await cargarCuentas();
 		await cargarCasillas();
+		if (viendoPospuestos.value) {
+			await cargarPospuestos();
+		}
 	}
 
 	/**
@@ -514,6 +559,7 @@ export function useCorreo() {
 
 	/** Muestra una cuenta, o [`TODAS`] para la bandeja combinada. */
 	async function elegir(accountId: string) {
+		viendoPospuestos.value = false;
 		elegida.value = accountId;
 		// Volver a la de entrada al cambiar de cuenta. La carpeta que estaba
 		// abierta es de la cuenta anterior: «Enviados» de una no es «Enviados»
@@ -584,8 +630,12 @@ export function useCorreo() {
 
 	/** Abre una carpeta de la cuenta que ya está elegida. */
 	async function elegirCasilla(ruta: string) {
+		// Volver de «Pospuestos» a la carpeta que ya estaba elegida tiene que
+		// releerla: pudo haber vuelto un mensaje mientras tanto.
+		const venia = viendoPospuestos.value;
+		viendoPospuestos.value = false;
 		// En la combinada no hay carpetas que elegir: son de cada cuenta.
-		if (combinada.value || casilla.value === ruta) {
+		if (combinada.value || (casilla.value === ruta && !venia)) {
 			return;
 		}
 		casilla.value = ruta;
@@ -760,6 +810,129 @@ export function useCorreo() {
 		}
 	}
 
+	/** Las cuentas cuyos pospuestos se piden: la elegida, o todas en la combinada. */
+	function cuentasAMirar(): string[] {
+		return combinada.value
+			? cuentas.value.map((c) => c.account_id)
+			: elegida.value
+				? [elegida.value]
+				: [];
+	}
+
+	/** Lee los pospuestos de la cuenta elegida, o de todas en la combinada. */
+	async function cargarPospuestos() {
+		cargandoPospuestos.value = true;
+		try {
+			const porCuenta = await Promise.all(
+				cuentasAMirar().map(async (accountId) =>
+					(await invoke<Pospuesto[]>('list_snoozed', { accountId })).map((p) => ({
+						...p,
+						account_id: accountId,
+						...detalleDePospuestos.get(p.message_id),
+					}))
+				)
+			);
+			// Los que vuelven antes, arriba.
+			pospuestos.value = porCuenta.flat().sort((a, b) => a.volver_a - b.volver_a);
+		} catch (e) {
+			error.value = String(e);
+		} finally {
+			cargandoPospuestos.value = false;
+		}
+	}
+
+	/** Muestra la lista de pospuestos en lugar de una carpeta. */
+	async function verPospuestos() {
+		viendoPospuestos.value = true;
+		limpiarBusqueda();
+		cerrar();
+		await cargarPospuestos();
+	}
+
+	/**
+	 * Pospone un mensaje hasta `volverA`: el servicio lo saca de la vista y lo
+	 * devuelve a su carpeta a esa hora. Como `removeFromMailbox`, todo sale del
+	 * mensaje y no de lo elegido ahora.
+	 *
+	 * Devuelve `true` si quedó pospuesto. Para poder deshacer hace falta el
+	 * identificador que usa el servicio, que no vuelve del comando: se busca en
+	 * la lista de pospuestos por carpeta y número.
+	 */
+	async function posponer(mensaje: Resumen, volverA: Date): Promise<boolean> {
+		const clave = claveDe(mensaje);
+		if (marcando.has(clave)) {
+			return false;
+		}
+		marcando.add(clave);
+		error.value = '';
+		try {
+			await invoke('snooze_message', {
+				accountId: mensaje.account_id,
+				mailbox: mensaje.casilla,
+				uid: mensaje.uid,
+				returnAt: enSegundos(volverA),
+			});
+			mensajes.value = mensajes.value.filter((m) => !esElMismo(m, mensaje));
+			if (esElMismo(abierto.value, mensaje)) {
+				cerrar();
+			}
+
+			let messageId: string | null = null;
+			try {
+				const lista = await invoke<Pospuesto[]>('list_snoozed', {
+					accountId: mensaje.account_id,
+				});
+				messageId =
+					lista.find((p) => p.casilla_origen === mensaje.casilla && p.uid === mensaje.uid)
+						?.message_id ?? null;
+			} catch (e) {
+				// Ya está pospuesto: no poder buscar el identificador sólo quita el «Deshacer».
+				console.error('no se pudo leer la lista de pospuestos', e);
+			}
+			if (messageId) {
+				detalleDePospuestos.set(messageId, { asunto: mensaje.asunto, de: mensaje.de });
+			}
+			pospuestoReciente.value = { accountId: mensaje.account_id, messageId, volverA };
+			return true;
+		} catch (e) {
+			error.value = String(e);
+			return false;
+		} finally {
+			marcando.delete(clave);
+		}
+	}
+
+	/** Cancela un posponer: el mensaje vuelve a su carpeta ya. */
+	async function cancelarPosponer(accountId: string, messageId: string): Promise<boolean> {
+		try {
+			await invoke('cancel_snooze', { accountId, messageId });
+			detalleDePospuestos.delete(messageId);
+			if (viendoPospuestos.value) {
+				await cargarPospuestos();
+			} else {
+				await cargarMensajes();
+			}
+			return true;
+		} catch (e) {
+			error.value = String(e);
+			return false;
+		}
+	}
+
+	/** El «Deshacer» del aviso de posponer. */
+	async function deshacerPosponer() {
+		const reciente = pospuestoReciente.value;
+		pospuestoReciente.value = null;
+		if (reciente?.messageId) {
+			await cancelarPosponer(reciente.accountId, reciente.messageId);
+		}
+	}
+
+	/** Deja de ofrecer deshacer, sin tocar nada. */
+	function olvidarPosponer() {
+		pospuestoReciente.value = null;
+	}
+
 	/**
 	 * Pone el mensaje en la cola.
 	 *
@@ -882,6 +1055,15 @@ export function useCorreo() {
 		deshacerEnvio,
 		olvidarEnvio,
 		descartarSaliente,
+		viendoPospuestos,
+		pospuestos,
+		cargandoPospuestos,
+		pospuestoReciente,
+		verPospuestos,
+		posponer,
+		cancelarPosponer,
+		deshacerPosponer,
+		olvidarPosponer,
 		cargarSalida,
 		elegida,
 		casillas,

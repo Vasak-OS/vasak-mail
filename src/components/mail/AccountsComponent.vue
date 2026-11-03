@@ -31,6 +31,8 @@ const props = defineProps<{
 	casillas: Casilla[];
 	casilla: string;
 	salientes: Saliente[];
+	/** Si en vez de una carpeta se está viendo la lista de pospuestos. */
+	viendoPospuestos?: boolean;
 	/** Cuánto correo sin leer hay entre todas, para la entrada de arriba. */
 	sinLeerEnTotal: number;
 	syncStatuses?: AccountSyncStatus[];
@@ -39,6 +41,7 @@ const props = defineProps<{
 const emit = defineEmits<{
 	elegir: [accountId: string];
 	elegirCasilla: [ruta: string];
+	elegirPospuestos: [];
 	escribir: [];
 	descartar: [id: string];
 }>();
@@ -196,20 +199,29 @@ function folderName(c: Casilla): string {
       <!-- Las carpetas de la cuenta elegida. Si el servidor no contestó el
            LIST la lista queda vacía y no se dibuja nada: se ve la de entrada,
            que es lo que se veía antes de que existieran. -->
-      <template v-if="sortedFolders.length > 0">
-        <SectionHeading as="h2" :title="t('casillas.titulo')" class="mt-2 px-1" />
-        <ul class="flex flex-col gap-0.5">
-          <li v-for="c in sortedFolders" :key="c.ruta">
-            <ListRow
-              role="button"
-              :selected="c.ruta === casilla"
-              class="px-2 py-1"
-              @click="emit('elegirCasilla', c.ruta)">
-              <span class="truncate text-label-m font-normal" :title="c.nombre">{{ folderName(c) }}</span>
-            </ListRow>
-          </li>
-        </ul>
-      </template>
+      <!-- «Pospuestos» no es una carpeta del servidor sino una vista propia, y
+           está siempre —también en la combinada, donde no hay carpetas—. -->
+      <SectionHeading as="h2" :title="t('casillas.titulo')" class="mt-2 px-1" />
+      <ul class="flex flex-col gap-0.5">
+        <li v-for="c in sortedFolders" :key="c.ruta">
+          <ListRow
+            role="button"
+            :selected="!viendoPospuestos && c.ruta === casilla"
+            class="px-2 py-1"
+            @click="emit('elegirCasilla', c.ruta)">
+            <span class="truncate text-label-m font-normal" :title="c.nombre">{{ folderName(c) }}</span>
+          </ListRow>
+        </li>
+        <li>
+          <ListRow
+            role="button"
+            :selected="viendoPospuestos"
+            class="px-2 py-1"
+            @click="emit('elegirPospuestos')">
+            <span class="truncate text-label-m font-normal">{{ t('posponer.vista') }}</span>
+          </ListRow>
+        </li>
+      </ul>
     </template>
 
     <!-- **Fuera del bloque de las cuentas.** La cola es del servicio y no de

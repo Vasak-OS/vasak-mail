@@ -200,6 +200,27 @@ programar:
   aMano: Or pick the date and time
   confirmar: Schedule it
 
+posponer:
+  boton: Snooze
+  titulo: Show it again
+  confirmar: Snooze until then
+  pospuesto: "Snoozed until {0}"
+  deshacer: Undo
+  vista: Snoozed
+  vacia: No snoozed messages
+  vuelve: "Returns {0}"
+  devolver: Return to the inbox
+  deLaCarpeta: "From folder {0}"
+  sinDatos: Message with no details at hand
+
+seguimiento:
+  boton: Remind me if no one replies
+  titulo: When to remind me
+  confirmar: Remind me then
+  activo: "We will remind you on {0} if no one replies"
+  quitar: Remove
+  porQue: If there is no reply by then, the message comes back into view.
+
 salida:
   titulo: Not sent
   esperandoOne: "{0} waiting to go out"

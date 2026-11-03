@@ -12,6 +12,7 @@ import {
 	RevealTransition,
 } from '@vasakgroup/vue-libvasak';
 import { computed, nextTick, ref, watch } from 'vue';
+import MomentPicker from '@/components/mail/MomentPicker.vue';
 import SmimeBadges from '@/components/mail/SmimeBadges.vue';
 import type { Abierto, Adjunto, Resumen } from '@/composables/use-correo';
 import { usePreferencias } from '@/composables/use-preferencias';
@@ -36,6 +37,7 @@ const emit = defineEmits<{
 	responder: [];
 	archive: [];
 	delete: [];
+	posponer: [cuando: Date];
 	volver: [];
 }>();
 
@@ -359,6 +361,12 @@ const cuando = computed(() => {
               variant="secondary"
               size="sm"
               @click="emit('delete')" />
+            <MomentPicker
+              :label="t('posponer.boton')"
+              :titulo="t('posponer.titulo')"
+              :confirmar="t('posponer.confirmar')"
+              size="sm"
+              @elegir="emit('posponer', $event)" />
           </div>
         </header>
 

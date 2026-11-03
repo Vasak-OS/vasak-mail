@@ -217,6 +217,29 @@ programar:
   aMano: O elegí la fecha y la hora
   confirmar: Programar el envío
 
+posponer:
+  boton: Posponer
+  titulo: Volver a mostrarlo
+  confirmar: Posponer hasta esa hora
+  # `{0}` es el momento en que vuelve.
+  pospuesto: "Pospuesto hasta {0}"
+  deshacer: Deshacer
+  vista: Pospuestos
+  vacia: No hay mensajes pospuestos
+  vuelve: "Vuelve {0}"
+  devolver: Devolver a la bandeja
+  deLaCarpeta: "De la carpeta {0}"
+  sinDatos: Mensaje sin datos a la vista
+
+seguimiento:
+  boton: Recordarme si no responden
+  titulo: Cuándo recordarme
+  confirmar: Recordarme en esa hora
+  # `{0}` es el momento del recordatorio.
+  activo: "Te lo recordamos el {0} si nadie responde"
+  quitar: Quitar
+  porQue: Si para esa hora no hubo respuesta, el mensaje vuelve a la vista.
+
 salida:
   titulo: Sin enviar
   # `t()` no interpola. Ver el README.

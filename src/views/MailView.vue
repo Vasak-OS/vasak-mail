@@ -11,6 +11,8 @@ import MessageComponent from '@/components/mail/MessageComponent.vue';
 import MessageListComponent from '@/components/mail/MessageListComponent.vue';
 import PreferencesComponent from '@/components/mail/PreferencesComponent.vue';
 import ShortcutsComponent from '@/components/mail/ShortcutsComponent.vue';
+import SnoozedListComponent from '@/components/mail/SnoozedListComponent.vue';
+import SnoozeNotice from '@/components/mail/SnoozeNotice.vue';
 import UndoComponent from '@/components/mail/UndoComponent.vue';
 import { type Borrador, type Resumen, useCorreo } from '@/composables/use-correo';
 import { cargarPreferencias, usePreferencias } from '@/composables/use-preferencias';
@@ -67,6 +69,15 @@ const {
 	deshacerEnvio,
 	olvidarEnvio,
 	descartarSaliente,
+	viendoPospuestos,
+	pospuestos,
+	cargandoPospuestos,
+	pospuestoReciente,
+	verPospuestos,
+	posponer,
+	cancelarPosponer,
+	deshacerPosponer,
+	olvidarPosponer,
 } = useCorreo();
 
 /**
@@ -79,6 +90,14 @@ const {
 const dondeEstoy = computed(() => {
 	// En la combinada no hay una cuenta que nombrar, y la carpeta es la de
 	// entrada de todas: se dice así y no con el nombre de una.
+	if (viendoPospuestos.value) {
+		return {
+			carpeta: t('posponer.vista'),
+			cuenta: combinada.value
+				? ''
+				: (cuentas.value.find((c) => c.account_id === elegida.value)?.display_name ?? ''),
+		};
+	}
 	if (combinada.value) {
 		return { carpeta: t('cuentas.todas'), cuenta: '' };
 	}
@@ -370,6 +389,18 @@ async function elegirCuenta(accountId: string) {
 async function elegirCarpeta(ruta: string) {
 	pidieronCarpetas.value = false;
 	await elegirCasilla(ruta);
+}
+
+async function elegirPospuestos() {
+	pidieronCarpetas.value = false;
+	await verPospuestos();
+}
+
+/** Pospone el mensaje abierto hasta la hora elegida. */
+async function posponerAbierto(cuando: Date) {
+	if (abierto.value) {
+		await posponer(abierto.value, cuando);
+	}
 }
 
 /** Vuelve a la lista, venga de donde venga. */
@@ -693,6 +724,11 @@ onUnmounted(() => {
         :hasta="enCamino?.hasta ?? null"
         @deshacer="volverAAbrirLoQueSeMando"
         @vencio="olvidarEnvio" />
+      <SnoozeNotice
+        :volver-a="pospuestoReciente?.volverA ?? null"
+        :se-puede-deshacer="pospuestoReciente?.messageId != null"
+        @deshacer="deshacerPosponer"
+        @vencio="olvidarPosponer" />
       <!-- Lo que falló va a la vista y no a la consola: una casilla vacía y una
            que no se pudo leer se ven idénticas, y la diferencia importa.
 
@@ -762,14 +798,27 @@ onUnmounted(() => {
           :casillas="casillas"
           :casilla="casilla"
           :salientes="salientes"
+          :viendo-pospuestos="viendoPospuestos"
           :sin-leer-en-total="sinLeerEnTotal"
           :sync-statuses="syncStatuses"
           :refresh-failures="refreshFailures"
           @elegir="elegirCuenta"
           @elegir-casilla="elegirCarpeta"
+          @elegir-pospuestos="elegirPospuestos"
           @escribir="escribir"
           @descartar="descartarSaliente" />
+        <!-- «Pospuestos» ocupa el lugar de la lista de mensajes. -->
+        <SnoozedListComponent
+          v-if="viendoPospuestos"
+          :panel="panel"
+          :pospuestos="pospuestos"
+          :cargando="cargandoPospuestos"
+          :combinada="combinada"
+          :cuentas="cuentas"
+          @carpetas="pidieronCarpetas = true"
+          @devolver="(p) => cancelarPosponer(p.account_id, p.message_id)" />
         <MessageListComponent
+          v-else
           ref="lista"
           :panel="panel"
           :carpeta="dondeEstoy.carpeta"
@@ -795,6 +844,7 @@ onUnmounted(() => {
           @responder="responderAlAbierto"
           @archive="removeOpen('archive')"
           @delete="removeOpen('delete')"
+          @posponer="posponerAbierto"
           @volver="volverALaLista" />
       </div>
 

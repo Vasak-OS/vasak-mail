@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { elegida, momentos, paraElServicio } from '../src/tools/programar';
+import { elegida, enSegundos, momentoLegible, momentos, paraElServicio } from '../src/tools/programar';
 
 /**
  * Las horas que se ofrecen para programar.
@@ -121,5 +121,19 @@ describe('elegida', () => {
 	test('lo que no se entiende no vale', () => {
 		expect(elegida('', ahora)).toBeNull();
 		expect(elegida('el jueves', ahora)).toBeNull();
+	});
+});
+
+describe('enSegundos', () => {
+	test('da epoch en segundos, no en milisegundos, y descarta los milisegundos', () => {
+		expect(enSegundos(new Date(1_700_000_000_999))).toBe(1_700_000_000);
+	});
+});
+
+describe('momentoLegible', () => {
+	test('dice el día y la hora local, no la de UTC', () => {
+		const texto = momentoLegible(new Date(2026, 10, 3, 18, 5), 'es');
+		expect(texto).toContain('18:05');
+		expect(texto).toContain('3');
 	});
 });

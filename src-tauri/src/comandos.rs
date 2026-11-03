@@ -5,7 +5,8 @@
 use tauri::Manager;
 
 use crate::correo::{
-    self, Abierto, AdjuntoParaMandar, Borrador, Casilla, Cuenta, EstadoSmime, Resumen, Saliente,
+    self, Abierto, AdjuntoParaMandar, Borrador, Casilla, Cuenta, EstadoSmime, Pospuesto, Resumen,
+    Saliente, Seguimiento,
 };
 use crate::mailto::{MailtoDraft, PendingMailto};
 use crate::store_access;
@@ -77,6 +78,41 @@ pub async fn move_message(
     destination: String,
 ) -> Result<String, String> {
     correo::move_message(&account_id, &mailbox, uid, &destination).await
+}
+
+/// Pospone un mensaje hasta una hora (epoch segundos).
+#[tauri::command]
+pub async fn snooze_message(
+    account_id: String,
+    mailbox: String,
+    uid: u32,
+    return_at: i64,
+) -> Result<String, String> {
+    correo::snooze_message(&account_id, &mailbox, uid, return_at).await
+}
+
+/// Los mensajes pospuestos de una cuenta.
+#[tauri::command]
+pub async fn list_snoozed(account_id: String) -> Result<Vec<Pospuesto>, String> {
+    correo::list_snoozed(&account_id).await
+}
+
+/// Cancela el posponer de un mensaje.
+#[tauri::command]
+pub async fn cancel_snooze(account_id: String, message_id: String) -> Result<String, String> {
+    correo::cancel_snooze(&account_id, &message_id).await
+}
+
+/// Los seguimientos pendientes de una cuenta.
+#[tauri::command]
+pub async fn list_followups(account_id: String) -> Result<Vec<Seguimiento>, String> {
+    correo::list_followups(&account_id).await
+}
+
+/// Cancela el seguimiento de un mensaje enviado.
+#[tauri::command]
+pub async fn cancel_followup(account_id: String, message_id: String) -> Result<String, String> {
+    correo::cancel_followup(&account_id, &message_id).await
 }
 
 /// Manda un mensaje a la papelera del servidor.
