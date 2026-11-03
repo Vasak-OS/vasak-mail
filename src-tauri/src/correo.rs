@@ -2634,6 +2634,32 @@ mod tests {
             assert_eq!((account_id.as_str(), message_id.as_str()), ("a", "<m2@x>"));
             "\"cancelado\"".into()
         }
+
+        // Reglas de correo. ListRules devuelve el ConjuntoReglas entero (con
+        // version/marca que la ventana ignora); CreateRule el id crudo (no entre
+        // comillas, como el servicio); el resto no contesta.
+        async fn list_rules(&self, account_id: String) -> String {
+            assert_eq!(account_id, "a");
+            r#"{"cuenta":"a","version":1,"marca_de_agua":{"uidvalidity":1,"uid_desde":100},"reglas":[{"id":"r1","nombre":"Banco","activa":true,"coincidencia":{"operador":"todas","condiciones":[{"campo":"de","prueba":"contiene","valor":"banco","negar":false}]},"acciones":["marcar_leido",{"mover_a":"Bancos"}],"detener":false}]}"#.into()
+        }
+
+        async fn create_rule(&self, account_id: String, _rule_json: String) -> String {
+            assert_eq!(account_id, "a");
+            "regla-nueva".into()
+        }
+
+        async fn update_rule(&self, account_id: String, _rule_json: String) {
+            assert_eq!(account_id, "a");
+        }
+
+        async fn delete_rule(&self, account_id: String, rule_id: String) {
+            assert_eq!((account_id.as_str(), rule_id.as_str()), ("a", "r1"));
+        }
+
+        async fn reorder_rules(&self, account_id: String, ids_json: String) {
+            assert_eq!(account_id, "a");
+            assert_eq!(ids_json, r#"["r2","r1"]"#);
+        }
     }
 
     /// El camino de lectura del correo, de punta a punta por el cliente del
@@ -2729,6 +2755,44 @@ mod tests {
             Ok("cancelado".to_string())
         );
 
+        // Reglas: list parsea el ConjuntoReglas y devuelve sólo las reglas en
+        // orden; create devuelve el id crudo; update/delete/reorder no contestan.
+        assert_eq!(
+            crate::comandos::list_rules("a".into()).await,
+            Ok(vec![Regla {
+                id: "r1".into(),
+                name: "Banco".into(),
+                active: true,
+                matching: Coincidencia {
+                    operator: Operador::All,
+                    conditions: vec![Condicion {
+                        field: Campo::From,
+                        test: Prueba::Contains,
+                        value: "banco".into(),
+                        negate: false,
+                    }],
+                },
+                actions: vec![Accion::MarkRead, Accion::MoveTo("Bancos".into())],
+                stop: false,
+            }])
+        );
+        assert_eq!(
+            crate::comandos::create_rule("a".into(), "{}".into()).await,
+            Ok("regla-nueva".to_string())
+        );
+        assert_eq!(
+            crate::comandos::update_rule("a".into(), "{}".into()).await,
+            Ok(())
+        );
+        assert_eq!(
+            crate::comandos::delete_rule("a".into(), "r1".into()).await,
+            Ok(())
+        );
+        assert_eq!(
+            crate::comandos::reorder_rules("a".into(), vec!["r2".into(), "r1".into()]).await,
+            Ok(())
+        );
+
         // Con el «no» al almacén no se va al servidor: se dice «sin permiso».
         *mode.lock().unwrap() = "denied";
         assert_eq!(
@@ -2738,6 +2802,40 @@ mod tests {
 
         // Y, por el mismo servidor, importar la identidad S/MIME.
         importar_por_el_bus(&sync).await;
+    }
+
+    /// El JSON de una `Regla` usa los nombres del cable del servicio: acciones
+    /// externally-tagged (`marcar_leido` suelto, `mover_a` como objeto) y los
+    /// renames en español. Si alguno se desalinea, la lista aparecería vacía o
+    /// una acción se perdería sin error.
+    #[test]
+    fn una_regla_va_y_vuelve_con_los_nombres_del_cable() {
+        let regla = Regla {
+            id: "r1".into(),
+            name: "Banco".into(),
+            active: true,
+            matching: Coincidencia {
+                operator: Operador::All,
+                conditions: vec![Condicion {
+                    field: Campo::Subject,
+                    test: Prueba::StartsWith,
+                    value: "Factura".into(),
+                    negate: true,
+                }],
+            },
+            actions: vec![Accion::MarkRead, Accion::MoveTo("Bancos".into())],
+            stop: false,
+        };
+        let json = serde_json::to_string(&regla).unwrap();
+        assert!(
+            json.contains(r#""acciones":["marcar_leido",{"mover_a":"Bancos"}]"#),
+            "{json}"
+        );
+        assert!(
+            json.contains(r#""campo":"asunto","prueba":"empieza_con""#),
+            "{json}"
+        );
+        assert_eq!(serde_json::from_str::<Regla>(&json).unwrap(), regla);
     }
 
     // ── Identidad S/MIME: el memfd sellado y el código de error ──────────────
