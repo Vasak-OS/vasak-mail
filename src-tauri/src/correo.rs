@@ -838,7 +838,11 @@ pub struct Borrador {
     /// cable es `recordar_en`, como lo llama el servicio, y viaja como un campo
     /// más del `SendMessage` que ya existe. Si no se pide seguimiento **no se
     /// serializa**: la cola y los borradores viejos se reescriben idénticos.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "recordar_en")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "recordar_en"
+    )]
     pub remind_at: Option<i64>,
 }
 
@@ -2399,6 +2403,44 @@ mod tests {
             );
             "\"entero\"".into()
         }
+
+        // Posponer y seguimiento: contestan lo que el servicio de verdad —el
+        // `MoveOutcome` o el texto del resultado, siempre JSON— para ver que el
+        // cliente los arma y los lee bien.
+        async fn snooze_message(
+            &self,
+            account_id: String,
+            mailbox: String,
+            uid: u32,
+            return_at: i64,
+        ) -> String {
+            assert_eq!(
+                (account_id.as_str(), mailbox.as_str(), uid, return_at),
+                ("a", "INBOX", 7, 1000)
+            );
+            "\"entero\"".into()
+        }
+
+        async fn list_snoozed(&self, account_id: String) -> String {
+            assert_eq!(account_id, "a");
+            r#"[{"message_id":"<m1@x>","casilla_origen":"INBOX","uid":7,"uidvalidity":1,"volver_a":1000}]"#.into()
+        }
+
+        async fn cancel_snooze(&self, account_id: String, message_id: String) -> String {
+            assert_eq!((account_id.as_str(), message_id.as_str()), ("a", "<m1@x>"));
+            "\"devuelto\"".into()
+        }
+
+        async fn list_followups(&self, account_id: String) -> String {
+            assert_eq!(account_id, "a");
+            r#"[{"message_id":"<m2@x>","destinatarios":["ana@ejemplo.com"],"recordar_en":2000}]"#
+                .into()
+        }
+
+        async fn cancel_followup(&self, account_id: String, message_id: String) -> String {
+            assert_eq!((account_id.as_str(), message_id.as_str()), ("a", "<m2@x>"));
+            "\"cancelado\"".into()
+        }
     }
 
     /// El camino de lectura del correo, de punta a punta por el cliente del
@@ -2458,6 +2500,40 @@ mod tests {
         assert_eq!(
             crate::comandos::delete_message("a".into(), "INBOX".into(), 7).await,
             Ok("entero".to_string())
+        );
+
+        // Posponer y seguimiento van por el mismo sincronizador en vivo. El
+        // posponer traduce el `MoveOutcome`; las listas se parsean a sus structs;
+        // cancelar devuelve el texto del resultado.
+        assert_eq!(
+            crate::comandos::snooze_message("a".into(), "INBOX".into(), 7, 1000).await,
+            Ok("entero".to_string())
+        );
+        assert_eq!(
+            crate::comandos::list_snoozed("a".into()).await,
+            Ok(vec![Pospuesto {
+                message_id: "<m1@x>".into(),
+                casilla_origen: "INBOX".into(),
+                uid: Some(7),
+                uidvalidity: Some(1),
+                volver_a: 1000,
+            }])
+        );
+        assert_eq!(
+            crate::comandos::cancel_snooze("a".into(), "<m1@x>".into()).await,
+            Ok("devuelto".to_string())
+        );
+        assert_eq!(
+            crate::comandos::list_followups("a".into()).await,
+            Ok(vec![Seguimiento {
+                message_id: "<m2@x>".into(),
+                destinatarios: vec!["ana@ejemplo.com".into()],
+                recordar_en: 2000,
+            }])
+        );
+        assert_eq!(
+            crate::comandos::cancel_followup("a".into(), "<m2@x>".into()).await,
+            Ok("cancelado".to_string())
         );
 
         // Con el «no» al almacén no se va al servidor: se dice «sin permiso».

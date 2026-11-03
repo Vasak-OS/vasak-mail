@@ -89,3 +89,22 @@ export function elegida(texto: string, ahora: Date): Date | null {
 	}
 	return cuando;
 }
+
+/**
+ * La hora en epoch **segundos**, que es lo que esperan `snooze_message` y el
+ * `recordar_en` del borrador (a diferencia de `no_antes_de`, que va en RFC 3339).
+ */
+export function enSegundos(cuando: Date): number {
+	return Math.floor(cuando.getTime() / 1000);
+}
+
+/** Un momento para leer en pantalla, en el idioma de la sesión: «lun, 3 nov, 18:00». */
+export function momentoLegible(cuando: Date, locale: string): string {
+	return new Intl.DateTimeFormat(locale, {
+		weekday: 'short',
+		day: 'numeric',
+		month: 'short',
+		hour: '2-digit',
+		minute: '2-digit',
+	}).format(cuando);
+}
