@@ -240,6 +240,65 @@ seguimiento:
   quitar: Quitar
   porQue: Si para esa hora no hubo respuesta, el mensaje vuelve a la vista.
 
+reglas:
+  titulo: Reglas del correo
+  cuenta: Cuenta
+  tus: Tus reglas
+  vacia: Todavía no hay reglas
+  sinNombre: (sin nombre)
+  activa: Activa
+  subir: Subir
+  bajar: Bajar
+  editar: Editar
+  borrar: Borrar
+  nueva: Nueva regla
+  cerrar: Cerrar
+  operador:
+    todas: Si se cumplen todas
+    cualquiera: Si se cumple cualquiera
+  campo:
+    de: De
+    para: Para
+    cc: Cc
+    asunto: Asunto
+    responder_a: Responder a
+    list_id: Lista (List-Id)
+    tamano: Tamaño (bytes)
+    tiene_adjuntos: Tiene adjuntos
+  prueba:
+    contiene: contiene
+    igual: es igual a
+    empieza_con: empieza con
+    mayor: es mayor que
+    menor: es menor que
+  accion:
+    marcar_leido: Marcar como leído
+    destacar: Destacar
+    borrar: Mover a la papelera
+    mover_a: Mover a la carpeta
+  editor:
+    nueva: Nueva regla
+    editar: Editar regla
+    nombre: Nombre
+    nombrePista: Para reconocerla
+    cuandoCoincide: Cuándo coincide
+    operador: Cuándo se aplica
+    campo: Campo
+    prueba: Prueba
+    valor: Valor
+    negar: Negar la condición
+    quitarCondicion: Quitar esta condición
+    agregarCondicion: Agregar condición
+    queHace: Qué hace
+    accion: Acción
+    carpeta: Carpeta destino
+    quitarAccion: Quitar esta acción
+    agregarAccion: Agregar acción
+    detener: No seguir con las demás reglas
+    detenerPorQue: Si esta regla coincide, las que siguen no se evalúan.
+    cancelar: Cancelar
+    guardar: Guardar
+
 salida:
   titulo: Sin enviar
   # `t()` no interpola. Ver el README.

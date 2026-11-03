@@ -221,6 +221,65 @@ seguimiento:
   quitar: Remove
   porQue: If there is no reply by then, the message comes back into view.
 
+reglas:
+  titulo: Mail rules
+  cuenta: Account
+  tus: Your rules
+  vacia: No rules yet
+  sinNombre: (no name)
+  activa: Active
+  subir: Move up
+  bajar: Move down
+  editar: Edit
+  borrar: Delete
+  nueva: New rule
+  cerrar: Close
+  operador:
+    todas: If all match
+    cualquiera: If any match
+  campo:
+    de: From
+    para: To
+    cc: Cc
+    asunto: Subject
+    responder_a: Reply-To
+    list_id: List (List-Id)
+    tamano: Size (bytes)
+    tiene_adjuntos: Has attachments
+  prueba:
+    contiene: contains
+    igual: equals
+    empieza_con: starts with
+    mayor: is greater than
+    menor: is less than
+  accion:
+    marcar_leido: Mark as read
+    destacar: Flag
+    borrar: Move to trash
+    mover_a: Move to folder
+  editor:
+    nueva: New rule
+    editar: Edit rule
+    nombre: Name
+    nombrePista: To recognize it
+    cuandoCoincide: When it matches
+    operador: When to apply
+    campo: Field
+    prueba: Test
+    valor: Value
+    negar: Negate the condition
+    quitarCondicion: Remove this condition
+    agregarCondicion: Add condition
+    queHace: What it does
+    accion: Action
+    carpeta: Target folder
+    quitarAccion: Remove this action
+    agregarAccion: Add action
+    detener: Stop processing further rules
+    detenerPorQue: If this rule matches, the following ones are not evaluated.
+    cancelar: Cancel
+    guardar: Save
+
 salida:
   titulo: Not sent
   esperandoOne: "{0} waiting to go out"
