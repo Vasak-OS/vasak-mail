@@ -10,6 +10,7 @@ import ComposeComponent from '@/components/mail/ComposeComponent.vue';
 import MessageComponent from '@/components/mail/MessageComponent.vue';
 import MessageListComponent from '@/components/mail/MessageListComponent.vue';
 import PreferencesComponent from '@/components/mail/PreferencesComponent.vue';
+import RulesComponent from '@/components/mail/RulesComponent.vue';
 import ShortcutsComponent from '@/components/mail/ShortcutsComponent.vue';
 import SnoozedListComponent from '@/components/mail/SnoozedListComponent.vue';
 import SnoozeNotice from '@/components/mail/SnoozeNotice.vue';
@@ -314,6 +315,7 @@ async function enviarBorrador(borrador: Borrador, cuando: string) {
 const mostrandoAtajos = ref(false);
 /** Si está a la vista la ventana de preferencias. */
 const mostrandoPreferencias = ref(false);
+const mostrandoReglas = ref(false);
 
 /** Si se pidió cambiar de carpeta. Sólo cambia lo que se ve en angosto. */
 const pidieronCarpetas = ref(false);
@@ -464,9 +466,15 @@ function alApretar(evento: KeyboardEvent) {
 		mostrandoPreferencias.value = false;
 		return;
 	}
-	// Con la ventana de redacción abierta el teclado es suyo. Sus propios atajos
-	// —Escape para cerrar, Tab para la trampa de foco— los maneja ella.
-	if (redactando.value) {
+	// Con un diálogo modal abierto el teclado es suyo: redacción, preferencias,
+	// atajos o reglas. Sus propios atajos (Escape, Tab) los maneja cada uno; las
+	// acciones de correo no tienen que correr por detrás del modal.
+	if (
+		redactando.value ||
+		mostrandoReglas.value ||
+		mostrandoPreferencias.value ||
+		mostrandoAtajos.value
+	) {
 		return;
 	}
 
@@ -674,6 +682,13 @@ onUnmounted(() => {
       <ActionButton
         label=""
         variant="ghost"
+        icon="view-filter-symbolic"
+        :icon-alt="t('reglas.titulo')"
+        :title="t('reglas.titulo')"
+        @click="mostrandoReglas = true" />
+      <ActionButton
+        label=""
+        variant="ghost"
         icon="view-refresh-symbolic"
         :icon-alt="t('lista.actualizar')"
         :title="t('lista.actualizar')"
@@ -717,6 +732,10 @@ onUnmounted(() => {
         :abierto="mostrandoPreferencias"
         :cuentas="cuentas"
         @cerrar="mostrandoPreferencias = false" />
+      <RulesComponent
+        :abierto="mostrandoReglas"
+        :cuentas="cuentas"
+        @cerrar="mostrandoReglas = false" />
 
       <!-- La ventana para arrepentirse. Va sobre todo lo demás porque es lo
            único con tiempo: si no se ve, no sirve. -->
