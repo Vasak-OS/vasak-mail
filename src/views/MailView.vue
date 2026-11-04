@@ -466,9 +466,15 @@ function alApretar(evento: KeyboardEvent) {
 		mostrandoPreferencias.value = false;
 		return;
 	}
-	// Con la ventana de redacción abierta el teclado es suyo. Sus propios atajos
-	// —Escape para cerrar, Tab para la trampa de foco— los maneja ella.
-	if (redactando.value) {
+	// Con un diálogo modal abierto el teclado es suyo: redacción, preferencias,
+	// atajos o reglas. Sus propios atajos (Escape, Tab) los maneja cada uno; las
+	// acciones de correo no tienen que correr por detrás del modal.
+	if (
+		redactando.value ||
+		mostrandoReglas.value ||
+		mostrandoPreferencias.value ||
+		mostrandoAtajos.value
+	) {
 		return;
 	}
 

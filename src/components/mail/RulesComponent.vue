@@ -36,21 +36,47 @@ const cuenta = ref('');
 const editando = ref<Regla | null>(null);
 let dejarDeEscuchar: UnlistenFn | null = null;
 
-// Al abrir, elegir una cuenta y cargar sus reglas; escuchar el aviso del
-// servicio para refrescar sin volver a pedirlo a mano.
+// Deja `cuenta` en una de la lista: la que estaba si sigue, si no la primera (o
+// vacía). Cubre que la lista llegue tarde o que la cuenta elegida se vaya.
+function elegirCuentaValida() {
+	const ids = props.cuentas.map((c) => c.account_id);
+	if (!ids.includes(cuenta.value)) {
+		cuenta.value = ids[0] ?? '';
+	}
+}
+
+// Si la lista de cuentas cambia con el diálogo abierto, re-elegir.
+watch(
+	() => props.cuentas,
+	() => {
+		if (props.abierto) {
+			elegirCuentaValida();
+		}
+	},
+	{ deep: true }
+);
+
+// Al abrir: elegir cuenta, enganchar el aviso del servicio **antes** de cargar
+// (para no perderse uno que llegue durante la carga) y cargar. El reorden/edición
+// de la cuenta la maneja el watcher de `cuenta`; el contador de `useReglas`
+// descarta cualquier carga vieja, así que una carga de más es inocua.
 watch(
 	() => props.abierto,
 	async (abierto) => {
-		if (abierto) {
-			if (!cuenta.value && props.cuentas.length > 0) {
-				cuenta.value = props.cuentas[0].account_id;
-			}
-			await cargar(cuenta.value);
-			dejarDeEscuchar = await listen('reglas-cambio', () => cargar(cuenta.value));
-		} else {
+		if (!abierto) {
 			dejarDeEscuchar?.();
 			dejarDeEscuchar = null;
+			return;
 		}
+		elegirCuentaValida();
+		const dejar = await listen('reglas-cambio', () => cargar(cuenta.value));
+		// Pudo cerrarse mientras se registraba: no dejar un oyente colgado.
+		if (props.abierto) {
+			dejarDeEscuchar = dejar;
+		} else {
+			dejar();
+		}
+		await cargar(cuenta.value);
 	}
 );
 

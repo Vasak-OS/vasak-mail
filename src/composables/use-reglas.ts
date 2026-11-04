@@ -69,6 +69,10 @@ const reglas = ref<Regla[]>([]);
 const cargando = ref(false);
 const error = ref('');
 
+// Cada carga pide un turno; sólo la última escribe el resultado. Sin esto, al
+// cambiar de cuenta rápido una respuesta vieja podía pisar a la nueva.
+let turno = 0;
+
 /** Una regla nueva, con una condición y una acción por defecto, lista para editar. */
 export function reglaNueva(): Regla {
 	return {
@@ -114,14 +118,25 @@ export function useReglas() {
 			reglas.value = [];
 			return;
 		}
+		// Al empezar se vacía la lista: mientras carga —o si falla— no se siguen
+		// mostrando las reglas de otra cuenta.
+		const miTurno = ++turno;
 		cargando.value = true;
 		error.value = '';
+		reglas.value = [];
 		try {
-			reglas.value = await invoke<Regla[]>('list_rules', { accountId });
+			const cargadas = await invoke<Regla[]>('list_rules', { accountId });
+			if (miTurno === turno) {
+				reglas.value = cargadas;
+			}
 		} catch (e) {
-			error.value = String(e);
+			if (miTurno === turno) {
+				error.value = String(e);
+			}
 		} finally {
-			cargando.value = false;
+			if (miTurno === turno) {
+				cargando.value = false;
+			}
 		}
 	}
 
