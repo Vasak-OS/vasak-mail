@@ -7,8 +7,15 @@
  */
 
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
-import { accionDesde, ordenAlMover, type Regla, tipoDeAccion, useReglas } from '@/composables/use-reglas';
-import { contestar, invocaciones, olvidarTodo } from './dobles';
+import {
+	accionDesde,
+	ordenAlMover,
+	type Regla,
+	reglaNueva,
+	tipoDeAccion,
+	useReglas,
+} from '@/composables/use-reglas';
+import { contestar, fallar, invocaciones, olvidarTodo } from './dobles';
 
 setDefaultTimeout(30_000);
 
@@ -57,7 +64,39 @@ describe('acción ida y vuelta', () => {
 	});
 });
 
+describe('reglaNueva', () => {
+	test('trae una condición y una acción, activa y sin id', () => {
+		const r = reglaNueva();
+		expect(r.id).toBe('');
+		expect(r.activa).toBe(true);
+		expect(r.coincidencia.condiciones).toHaveLength(1);
+		expect(r.acciones).toHaveLength(1);
+	});
+});
+
 describe('useReglas', () => {
+	test('cargar sin cuenta no pide nada y deja la lista vacía', async () => {
+		const r = useReglas();
+		await r.cargar('');
+		expect(invocaciones.some((i) => i.comando === 'list_rules')).toBe(false);
+		expect(r.reglas.value).toEqual([]);
+	});
+
+	test('un error al escribir devuelve false y lo deja a la vista', async () => {
+		fallar('create_rule', 'sin permiso');
+		const r = useReglas();
+		const ok = await r.crear('ana', regla('x'));
+		expect(ok).toBe(false);
+		expect(r.error.value).toContain('sin permiso');
+	});
+
+	test('un error al cargar lo deja a la vista', async () => {
+		fallar('list_rules', 'bus caído');
+		const r = useReglas();
+		await r.cargar('ana');
+		expect(r.error.value).toContain('bus caído');
+	});
+
 	test('cargar pide las reglas de la cuenta', async () => {
 		contestar('list_rules', [regla('a')]);
 		const r = useReglas();
