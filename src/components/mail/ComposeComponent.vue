@@ -302,7 +302,6 @@ function scheduleTyped() {
 	}
 }
 
-/** Cuándo recordar el mensaje si nadie responde. `null`: sin seguimiento. */
 /** Cifrar con OpenPGP: por mensaje, y sólo si hay clave de todos los destinatarios. */
 const encryptPgp = ref(props.inicial.metodo_cifrado === 'pgp');
 
@@ -316,6 +315,8 @@ const recipients = computed(() => [
 ]);
 const keyState = (address: string): KeyState | 'resolving' =>
 	recipientKeys[keyId(address)] ?? 'resolving';
+/** Tono del distintivo según el estado de la clave del destinatario. */
+const KEY_TONES = { yes: 'success', no: 'warning', resolving: 'neutral' } as const;
 const missingKeys = computed(() => recipients.value.filter((a) => keyState(a) === 'no'));
 const resolvingKeys = computed(() => recipients.value.some((a) => keyState(a) === 'resolving'));
 const canEncryptPgp = computed(
@@ -362,6 +363,7 @@ const encryptDescription = computed(() => {
 	return t('redactar.cifrarPgpPorQue');
 });
 
+/** Cuándo recordar el mensaje si nadie responde. `null`: sin seguimiento. */
 const recordarEn = ref<Date | null>(null);
 
 /** El borrador con lo que hay en pantalla. */
@@ -448,7 +450,7 @@ function cerrar() {
         <ul v-if="recipients.length" class="flex min-w-0 flex-wrap gap-1.5" :aria-label="t('redactar.claveDestinatarios')">
           <li v-for="a in recipients" :key="a" class="min-w-0 max-w-full">
             <Badge
-              :tone="{ yes: 'success', no: 'warning', resolving: 'neutral' }[keyState(a)] as 'success' | 'warning' | 'neutral'"
+              :tone="KEY_TONES[keyState(a)]"
               dot
               :label="`${a} · ${t(`redactar.clave_${keyState(a)}`)}`"
               class="max-w-full truncate" />
