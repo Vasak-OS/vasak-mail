@@ -97,7 +97,10 @@ export async function invoke(comando: string, args?: unknown) {
 	if (fallos.has(comando)) {
 		throw fallos.get(comando);
 	}
-	return respuestas.get(comando);
+	const valor = respuestas.get(comando);
+	// Una función contesta según los argumentos (y puede fallar): para comandos
+	// que, como la clave de un destinatario, dependen de a quién se pregunta.
+	return typeof valor === 'function' ? valor(args) : valor;
 }
 
 /** Los oyentes registrados por evento, para poder dispararlos desde una prueba. */

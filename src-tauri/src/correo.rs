@@ -2835,6 +2835,26 @@ mod tests {
             }
         }
 
+        async fn resolve_recipient_key(
+            &self,
+            account_id: String,
+            address: String,
+        ) -> Result<String, FakeSmimeError> {
+            match (account_id.as_str(), address.as_str()) {
+                ("ana", "lucia@ejemplo.org") => Ok(
+                    r#"{"present":true,"source":"wkd","fingerprint":"CCCC DDDD","expired":false,"revoked":false}"#
+                        .to_string(),
+                ),
+                ("ana", "vieja@ejemplo.org") => Ok(
+                    r#"{"present":true,"source":"keyring","fingerprint":"EEEE","expired":true,"revoked":true}"#
+                        .to_string(),
+                ),
+                (_, "mala@ejemplo.org") => Err(FakeSmimeError::WrongPassword("detalle largo".into())),
+                (_, "rota@ejemplo.org") => Ok("esto no es json".to_string()),
+                _ => Ok(r#"{"present":false}"#.to_string()),
+            }
+        }
+
         async fn remove_pgp_identity(&self, account_id: String) -> Result<(), FakeSmimeError> {
             if account_id == "mala" {
                 return Err(FakeSmimeError::WrongPassword("detalle largo".into()));
@@ -3107,6 +3127,7 @@ mod tests {
         // Y, por el mismo servidor, importar la identidad S/MIME y la OpenPGP.
         importar_por_el_bus(&sync).await;
         pgp_por_el_bus(&sync).await;
+        clave_de_destinatario_por_el_bus().await;
     }
 
     /// El JSON de una `Regla` usa los nombres del cable del servicio: acciones
@@ -3406,6 +3427,88 @@ mod tests {
         );
         quitar_identidad_pgp("ana").await.unwrap();
         assert_eq!(*sync.pgp_removed.lock().unwrap(), vec!["ana".to_string()]);
+    }
+
+    /// `ResolveRecipientKey(s, s)` por el cable: el JSON del servicio llega
+    /// entero, y los errores salen como código pelado o «Failed».
+    async fn clave_de_destinatario_por_el_bus() {
+        assert_eq!(
+            resolver_clave_destinatario("ana", "lucia@ejemplo.org")
+                .await
+                .unwrap(),
+            ClaveDestinatario {
+                present: true,
+                source: "wkd".into(),
+                fingerprint: Some("CCCC DDDD".into()),
+                expired: false,
+                revoked: false,
+            }
+        );
+        let vieja = resolver_clave_destinatario("ana", "vieja@ejemplo.org")
+            .await
+            .unwrap();
+        assert!(vieja.expired && vieja.revoked, "{vieja:?}");
+        assert_eq!(
+            resolver_clave_destinatario("ana", "nadie@ejemplo.org")
+                .await
+                .unwrap(),
+            ClaveDestinatario::default()
+        );
+        assert_eq!(
+            resolver_clave_destinatario("ana", "mala@ejemplo.org")
+                .await
+                .unwrap_err(),
+            "WrongPassword"
+        );
+        assert_eq!(
+            resolver_clave_destinatario("ana", "rota@ejemplo.org")
+                .await
+                .unwrap_err(),
+            "Failed"
+        );
+    }
+
+    #[test]
+    fn el_borrador_serializa_metodo_cifrado_solo_si_esta() {
+        let sin = Borrador {
+            para: vec!["juan@otro.com".into()],
+            ..Default::default()
+        };
+        assert!(serde_json::to_value(&sin)
+            .unwrap()
+            .get("metodo_cifrado")
+            .is_none());
+
+        let con = Borrador {
+            encrypt_method: Some(EncryptMethod::Pgp),
+            ..sin
+        };
+        let json = serde_json::to_value(&con).unwrap();
+        assert_eq!(json["metodo_cifrado"], serde_json::json!("pgp"), "{json}");
+        assert!(json.get("encrypt_method").is_none(), "{json}");
+
+        let reescrito = serde_json::to_string(&con).unwrap();
+        assert_eq!(serde_json::from_str::<Borrador>(&reescrito).unwrap(), con);
+    }
+
+    #[test]
+    fn un_borrador_viejo_sin_metodo_cifrado_se_lee_sin_cifrar() {
+        let viejo: Borrador = serde_json::from_str(r#"{"para":["a@x.com"]}"#).unwrap();
+        assert_eq!(viejo.encrypt_method, None);
+    }
+
+    #[test]
+    fn la_clave_del_destinatario_se_lee_del_json_del_servicio() {
+        let clave: ClaveDestinatario = serde_json::from_str(
+            r#"{"present":true,"source":"wkd","fingerprint":"AAAA","expired":true,"revoked":false}"#,
+        )
+        .unwrap();
+        assert!(clave.present && clave.expired && !clave.revoked);
+        assert_eq!(clave.source, "wkd");
+        assert_eq!(clave.fingerprint.as_deref(), Some("AAAA"));
+        // Sin campos: no hay clave, y nada de lo demás se supone.
+        let sin: ClaveDestinatario = serde_json::from_str(r#"{"present":false}"#).unwrap();
+        assert_eq!(sin, ClaveDestinatario::default());
     }
 
     #[test]
