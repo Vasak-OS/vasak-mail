@@ -136,6 +136,22 @@ pub struct SmimeStatus {
     pub encryption: Option<Encryption>,
 }
 
+/// El estado OpenPGP de un mensaje, tal como lo guarda el servicio. `None` en
+/// `Abierto` quiere decir que no venía ni firmado ni cifrado con PGP.
+///
+/// `signature` va como texto (`known`, `unknown`, `unverifiable`): un valor
+/// nuevo del servicio no rompe la apertura, y la ventana lo lee como «no
+/// verificable». `signer` es la huella, sólo con firma conocida.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct PgpStatus {
+    #[serde(default)]
+    pub signature: Option<String>,
+    #[serde(default)]
+    pub signer: Option<String>,
+    #[serde(default)]
+    pub encryption: Option<Encryption>,
+}
+
 /// Un mensaje abierto.
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Abierto {
@@ -177,6 +193,9 @@ pub struct Abierto {
     /// no descifra ni verifica, y ahí queda `None`.
     #[serde(default)]
     pub smime: Option<SmimeStatus>,
+    /// Lo mismo para OpenPGP.
+    #[serde(default)]
+    pub pgp: Option<PgpStatus>,
 }
 
 /// Cuántos mensajes se piden del almacén por casilla: los mismos que mostraba
@@ -331,6 +350,8 @@ struct StoredMessage {
     truncated: bool,
     #[serde(default)]
     smime: Option<SmimeStatus>,
+    #[serde(default)]
+    pgp: Option<PgpStatus>,
     #[serde(default)]
     attachments: Vec<StoredAttachment>,
 }
@@ -515,6 +536,7 @@ fn opened_from_store(m: StoredMessage) -> Option<Abierto> {
         responder_a,
         nombre,
         smime: m.smime,
+        pgp: m.pgp,
     })
 }
 
@@ -834,6 +856,14 @@ pub struct Borrador {
     /// reescribe idéntica y el campo sólo aparece cuando de verdad se firma.
     #[serde(default, skip_serializing_if = "is_false", rename = "firmar")]
     pub sign: bool,
+    /// El método de firma explícito (`metodo_firma` en el cable). Ausente no se
+    /// serializa: la cola vieja y el envío con S/MIME (`firmar`) quedan idénticos.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "metodo_firma"
+    )]
+    pub sign_method: Option<SignMethod>,
     /// Cuándo recordar este mensaje si no hay respuesta, en epoch segundos. En el
     /// cable es `recordar_en`, como lo llama el servicio, y viaja como un campo
     /// más del `SendMessage` que ya existe. Si no se pide seguimiento **no se
@@ -848,6 +878,15 @@ pub struct Borrador {
 
 fn is_false(value: &bool) -> bool {
     !*value
+}
+
+/// Cómo se firma un mensaje al salir, tal como lo nombra el servicio.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SignMethod {
+    None,
+    Smime,
+    Pgp,
 }
 
 /// Un mensaje esperando salir.
@@ -1250,6 +1289,52 @@ pub async fn quitar_identidad_smime(account_id: &str) -> Result<(), String> {
     llamar_sin_respuesta("RemoveSmimeIdentity", &(account_id,))
         .await
         .map_err(|e| format!("no se pudo quitar la identidad S/MIME: {e}"))
+}
+
+/// El estado de la identidad OpenPGP de una cuenta, tal como lo publica
+/// `GetPgpIdentity`. Sin identidad, `present` es `false`.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct EstadoPgp {
+    #[serde(default)]
+    pub present: bool,
+    #[serde(default)]
+    pub fingerprint: Option<String>,
+    #[serde(default)]
+    pub uids: Vec<String>,
+}
+
+/// Importa una identidad OpenPGP en una cuenta: la clave secreta y su
+/// contraseña, cada una en su memfd sellado. Los errores son los mismos
+/// nombres que los de S/MIME: se clasifican con [`smime_error_code`].
+pub async fn importar_identidad_pgp(
+    account_id: &str,
+    key_fd: &OwnedFd,
+    passphrase_fd: &OwnedFd,
+) -> Result<(), StoreError> {
+    use zbus::zvariant::Fd;
+
+    store()
+        .map_err(|_| StoreError::NotRunning)?
+        .call_on::<_, ()>(
+            RUTA,
+            INTERFAZ,
+            "ImportPgpIdentity",
+            &(account_id, Fd::from(key_fd), Fd::from(passphrase_fd)),
+        )
+        .await
+}
+
+/// El estado de la identidad OpenPGP de una cuenta.
+pub async fn estado_identidad_pgp(account_id: &str) -> Result<EstadoPgp, String> {
+    let json = llamar("GetPgpIdentity", &(account_id,)).await?;
+    serde_json::from_str(&json).map_err(|e| format!("no se pudo leer el estado PGP: {e}"))
+}
+
+/// Quita la identidad OpenPGP de una cuenta.
+pub async fn quitar_identidad_pgp(account_id: &str) -> Result<(), String> {
+    llamar_sin_respuesta("RemovePgpIdentity", &(account_id,))
+        .await
+        .map_err(|e| format!("no se pudo quitar la identidad PGP: {e}"))
 }
 
 /// El evento que ve la ventana cuando llega correo.

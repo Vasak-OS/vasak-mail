@@ -5,8 +5,8 @@
 use tauri::Manager;
 
 use crate::correo::{
-    self, Abierto, AdjuntoParaMandar, Borrador, Casilla, Cuenta, EstadoSmime, Pospuesto, Regla,
-    Resumen, Saliente, Seguimiento,
+    self, Abierto, AdjuntoParaMandar, Borrador, Casilla, Cuenta, EstadoPgp, EstadoSmime, Pospuesto,
+    Regla, Resumen, Saliente, Seguimiento,
 };
 use crate::mailto::{MailtoDraft, PendingMailto};
 use crate::store_access;
@@ -227,6 +227,36 @@ pub fn take_pending_mailto(app: tauri::AppHandle) -> Option<MailtoDraft> {
     guardado.take()
 }
 
+/// Lee el archivo que eligió la persona y lo sella, junto con la contraseña, en
+/// dos memfd. Es I/O bloqueante: va fuera del hilo async. Antes de leerlo entero
+/// se comprueba que sea un archivo y que no pese de más —si no, un fifo o un
+/// archivo enorme mal elegido trabaría la ventana antes de que el servicio
+/// aplique su tope—.
+async fn sellar_archivo_y_contrasena(
+    ruta: String,
+    contrasena: String,
+    maximo: u64,
+) -> Result<(std::os::fd::OwnedFd, std::os::fd::OwnedFd), String> {
+    tokio::task::spawn_blocking(move || {
+        let datos =
+            std::fs::metadata(&ruta).map_err(|e| format!("no se pudo leer el certificado: {e}"))?;
+        if !datos.is_file() {
+            return Err("Malformed".to_string());
+        }
+        if datos.len() > maximo {
+            return Err("TooBig".to_string());
+        }
+        let archivo =
+            std::fs::read(&ruta).map_err(|e| format!("no se pudo leer el certificado: {e}"))?;
+        Ok((
+            correo::sealed_memfd(&archivo)?,
+            correo::sealed_memfd(contrasena.as_bytes())?,
+        ))
+    })
+    .await
+    .map_err(|_| "Failed".to_string())?
+}
+
 /// Importa una identidad S/MIME en una cuenta, desde un `.p12` que eligió la
 /// persona y la contraseña que lo abre.
 ///
@@ -244,32 +274,9 @@ pub async fn importar_identidad_smime(
     ruta: String,
     contrasena: String,
 ) -> Result<(), String> {
-    // Leer el archivo y sellar los dos secretos es I/O bloqueante: fuera del
-    // hilo async. Antes de leerlo entero a memoria se comprueba que sea un
-    // archivo y que no pese de más —si no, un fifo o un archivo enorme mal
-    // elegido trabaría la ventana antes de que el servicio aplique su tope—.
     // Mismo máximo que el servidor (`MAX_SMIME_PKCS12_BYTES`): un `.p12` son KB.
-    let (p12_fd, password_fd) = tokio::task::spawn_blocking(
-        move || -> Result<(std::os::fd::OwnedFd, std::os::fd::OwnedFd), String> {
-            const MAXIMO: u64 = 8 * 1024 * 1024;
-            let datos = std::fs::metadata(&ruta)
-                .map_err(|e| format!("no se pudo leer el certificado: {e}"))?;
-            if !datos.is_file() {
-                return Err("Malformed".into());
-            }
-            if datos.len() > MAXIMO {
-                return Err("TooBig".into());
-            }
-            let p12 =
-                std::fs::read(&ruta).map_err(|e| format!("no se pudo leer el certificado: {e}"))?;
-            Ok((
-                correo::sealed_memfd(&p12)?,
-                correo::sealed_memfd(contrasena.as_bytes())?,
-            ))
-        },
-    )
-    .await
-    .map_err(|_| "Failed".to_string())??;
+    let (p12_fd, password_fd) =
+        sellar_archivo_y_contrasena(ruta, contrasena, 8 * 1024 * 1024).await?;
     correo::importar_identidad_smime(&account_id, &p12_fd, &password_fd)
         .await
         .map_err(|e| correo::smime_error_code(&e).into())
@@ -286,6 +293,36 @@ pub async fn estado_identidad_smime(account_id: String) -> Result<EstadoSmime, S
 #[tauri::command]
 pub async fn quitar_identidad_smime(account_id: String) -> Result<(), String> {
     correo::quitar_identidad_smime(&account_id).await
+}
+
+/// Importa una identidad OpenPGP en una cuenta, desde el archivo de clave
+/// secreta que eligió la persona y su contraseña (puede ser vacía si la clave
+/// no está protegida). Mismo camino que S/MIME: archivo y contraseña van del
+/// disco a memfd sellados, sin pasar por la ventana ni registrarse.
+#[tauri::command]
+pub async fn importar_identidad_pgp(
+    account_id: String,
+    ruta: String,
+    contrasena: String,
+) -> Result<(), String> {
+    // Mismo máximo que el servidor (`MAX_PGP_KEY_BYTES`).
+    let (key_fd, passphrase_fd) =
+        sellar_archivo_y_contrasena(ruta, contrasena, 1024 * 1024).await?;
+    correo::importar_identidad_pgp(&account_id, &key_fd, &passphrase_fd)
+        .await
+        .map_err(|e| correo::smime_error_code(&e).into())
+}
+
+/// El estado de la identidad OpenPGP de una cuenta.
+#[tauri::command]
+pub async fn estado_identidad_pgp(account_id: String) -> Result<EstadoPgp, String> {
+    correo::estado_identidad_pgp(&account_id).await
+}
+
+/// Quita la identidad OpenPGP de una cuenta.
+#[tauri::command]
+pub async fn quitar_identidad_pgp(account_id: String) -> Result<(), String> {
+    correo::quitar_identidad_pgp(&account_id).await
 }
 
 /// Vuelve a pedir el permiso para leer el correo del almacén.
