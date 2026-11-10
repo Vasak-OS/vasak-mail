@@ -509,7 +509,7 @@ function alApretar(evento: KeyboardEvent) {
 			void removeOpen('delete');
 			break;
 		case 'redactar':
-			void escribir();
+			escribir();
 			break;
 		case 'actualizar':
 			void refresh();

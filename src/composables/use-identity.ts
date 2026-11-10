@@ -3,14 +3,14 @@ import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import { onMounted, ref, watch } from 'vue';
 
 /** Los códigos cortos que devuelve el lado Rust; cualquier otro es genérico. */
-const ERROR_CODES = [
+const ERROR_CODES = new Set([
 	'WrongPassword',
 	'TooBig',
 	'AddressMismatch',
 	'UnsupportedLegacy',
 	'Malformed',
 	'KeyringLocked',
-];
+]);
 
 /**
  * El estado de la identidad (S/MIME o OpenPGP) de una cuenta y las operaciones
@@ -25,7 +25,7 @@ export function useIdentity<S>(ns: 'smime' | 'pgp', accountId: () => string) {
 
 	function messageFor(e: unknown): string {
 		const code = String(e);
-		return ERROR_CODES.includes(code) ? t(`${ns}.error${code}`) : t(`${ns}.errorFailed`);
+		return ERROR_CODES.has(code) ? t(`${ns}.error${code}`) : t(`${ns}.errorFailed`);
 	}
 
 	async function refresh() {
