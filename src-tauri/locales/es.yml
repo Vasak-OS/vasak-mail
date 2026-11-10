@@ -165,7 +165,7 @@ redactar:
   firmarPgpPorQue: Con tu clave. Sin una para esta cuenta, el mensaje no sale.
   firmarPgpSinClave: Importá la clave de esta cuenta en Preferencias para poder firmar.
   cifrarPgp: "Cifrar con OpenPGP"
-  cifrarPgpPorQue: "Con la clave de cada destinatario. Sólo tú y ellos podrán leerlo."
+  cifrarPgpPorQue: "Con la clave de cada destinatario. Sólo vos y ellos podrán leerlo."
   cifrarPgpFalta: "Falta la clave de: {0}. Sin ella no se puede cifrar."
   cifrarPgpResolviendo: "Buscando la clave de los destinatarios…"
   cifrarPgpSinDestinatarios: "Agregá destinatarios para poder cifrar."

@@ -351,9 +351,16 @@ watch(
 	{ immediate: true }
 );
 onBeforeUnmount(() => clearTimeout(keyTimer));
-watch(canEncryptPgp, (ok) => {
-	if (!ok) encryptPgp.value = false;
-});
+watch(
+	canEncryptPgp,
+	(ok) => {
+		if (!ok) encryptPgp.value = false;
+	},
+	// `immediate`: al montar (o con un borrador que ya traía cifrado) la condición
+	// todavía no se cumple —las claves recién se resuelven—, así que el estado visible
+	// arranca apagado y no muestra «cifrado» sobre destinatarios sin clave.
+	{ immediate: true }
+);
 
 const encryptDescription = computed(() => {
 	if (missingKeys.value.length)
@@ -378,7 +385,9 @@ function armar(): Borrador {
 		// Sólo cuando se pidió: apagado no viaja, como en el servicio.
 		firmar: sign.value || undefined,
 		metodo_firma: signPgp.value ? 'pgp' : undefined,
-		metodo_cifrado: encryptPgp.value ? 'pgp' : undefined,
+		// Defensa en profundidad: nunca pedir cifrar si no hay clave usable de todos
+		// los destinatarios, aunque el toggle hubiera quedado encendido.
+		metodo_cifrado: encryptPgp.value && canEncryptPgp.value ? 'pgp' : undefined,
 		// Igual: sin seguimiento el campo no viaja.
 		recordar_en: recordarEn.value ? enSegundos(recordarEn.value) : undefined,
 	};
