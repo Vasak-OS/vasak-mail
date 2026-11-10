@@ -24,6 +24,7 @@ import { nombreDeCasilla } from '@/tools/casillas';
 import { interpolar } from '@/tools/interpolar';
 import { aBorrador, type MailtoRequest } from '@/tools/mailto';
 import { panesOnScreen, visiblePane } from '@/tools/panes';
+import { describePgp } from '@/tools/pgp';
 import { responder as armarRespuesta } from '@/tools/responder';
 import { describeSmime } from '@/tools/smime';
 
@@ -248,7 +249,7 @@ function responderAlAbierto() {
 		{
 			asunto: abierto.value.asunto,
 			// No citar un cuerpo que la vista oculta: sería filtrar en claro lo que la persona nunca vio.
-			texto: vista.bodyHidden ? '' : cuerpo.value.texto,
+			texto: vista.bodyHidden || describePgp(cuerpo.value.pgp).bodyHidden ? '' : cuerpo.value.texto,
 			de: abierto.value.direccion,
 			responder_a: cuerpo.value.responder_a,
 			fecha: abierto.value.fecha,
@@ -372,7 +373,7 @@ function moverse(cuanto: number) {
 	const siguiente = actual < 0 ? (cuanto > 0 ? 0 : mensajes.value.length - 1) : actual + cuanto;
 	const destino = mensajes.value[siguiente];
 	if (destino) {
-		abrir(destino);
+		void abrir(destino);
 	}
 }
 
@@ -502,22 +503,22 @@ function alApretar(evento: KeyboardEvent) {
 			responderAlAbierto();
 			break;
 		case 'archive':
-			removeOpen('archive');
+			void removeOpen('archive');
 			break;
 		case 'delete':
-			removeOpen('delete');
+			void removeOpen('delete');
 			break;
 		case 'redactar':
 			escribir();
 			break;
 		case 'actualizar':
-			refresh();
+			void refresh();
 			break;
 		case 'irALaEntrada':
-			elegirCasilla('INBOX');
+			void elegirCasilla('INBOX');
 			break;
 		case 'buscar':
-			goToSearch();
+			void goToSearch();
 			break;
 		case 'ayuda':
 			mostrandoAtajos.value = true;

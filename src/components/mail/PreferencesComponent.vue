@@ -11,6 +11,7 @@ import {
 	Slider,
 } from '@vasakgroup/vue-libvasak';
 import { computed, onMounted, ref } from 'vue';
+import PgpIdentityCard from '@/components/mail/PgpIdentityCard.vue';
 import SmimeIdentityCard from '@/components/mail/SmimeIdentityCard.vue';
 import type { Cuenta } from '@/composables/use-correo';
 import { guardarPreferencia, usePreferencias } from '@/composables/use-preferencias';
@@ -176,6 +177,13 @@ async function chooseDetail(valor: string) {
         <p class="mb-2 text-body-xs text-tx-muted">{{ t('smime.seccionPorQue') }}</p>
         <div class="flex flex-col gap-2">
           <SmimeIdentityCard v-for="c in cuentas" :key="c.account_id" :cuenta="c" />
+        </div>
+      </section>
+      <section v-if="cuentas.length" class="mt-4 flex flex-col gap-1 border-ui-line-weak border-t pt-3">
+        <h3 class="mb-1 font-semibold text-label-m">{{ t('pgp.seccion') }}</h3>
+        <p class="mb-2 text-body-xs text-tx-muted">{{ t('pgp.seccionPorQue') }}</p>
+        <div class="flex flex-col gap-2">
+          <PgpIdentityCard v-for="c in cuentas" :key="c.account_id" :cuenta="c" />
         </div>
       </section>
       <!-- En el aviso del sistema: guardar una preferencia y que falle es un

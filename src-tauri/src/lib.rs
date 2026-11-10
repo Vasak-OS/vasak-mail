@@ -96,6 +96,9 @@ pub fn run() {
             comandos::importar_identidad_smime,
             comandos::estado_identidad_smime,
             comandos::quitar_identidad_smime,
+            comandos::importar_identidad_pgp,
+            comandos::estado_identidad_pgp,
+            comandos::quitar_identidad_pgp,
             commands::webkit::tune_webview,
         ])
         // El sincronizador avisa cuando llega correo; esto lo traduce a un

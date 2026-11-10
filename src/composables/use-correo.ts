@@ -11,6 +11,7 @@ import { claveDe, combinados, esElMismo, TODAS } from '@/tools/bandeja';
 import { alcance, filtrados } from '@/tools/busqueda';
 import { noAntesDe, quedan } from '@/tools/deshacer';
 import type { Saneado } from '@/tools/formato';
+import type { PgpStatus } from '@/tools/pgp';
 import { enSegundos } from '@/tools/programar';
 import type { SmimeStatus } from '@/tools/smime';
 import {
@@ -121,6 +122,8 @@ export interface Abierto {
 	 * la lectura en vivo no verifica ni descifra. Ver `tools/smime.ts`.
 	 */
 	smime?: SmimeStatus | null;
+	/** Lo mismo para OpenPGP. Ver `tools/pgp.ts`. */
+	pgp?: PgpStatus | null;
 }
 
 /** Un archivo para pegar a un mensaje, ya leído. */
@@ -148,6 +151,8 @@ export interface Borrador {
 	 * espera el servicio en el cable. Ausente o `false`: no se firma.
 	 */
 	firmar?: boolean;
+	/** Método de firma explícito (`metodo_firma` en el cable). Ausente: lo decide `firmar`. */
+	metodo_firma?: 'none' | 'smime' | 'pgp';
 	/**
 	 * Cuándo recordar este mensaje si nadie responde, en epoch **segundos**.
 	 * Ausente: sin seguimiento. Se llama `recordar_en` como en el cable.

@@ -13,6 +13,7 @@ import {
 } from '@vasakgroup/vue-libvasak';
 import { computed, nextTick, ref, watch } from 'vue';
 import MomentPicker from '@/components/mail/MomentPicker.vue';
+import PgpBadges from '@/components/mail/PgpBadges.vue';
 import SmimeBadges from '@/components/mail/SmimeBadges.vue';
 import type { Abierto, Adjunto, Resumen } from '@/composables/use-correo';
 import { usePreferencias } from '@/composables/use-preferencias';
@@ -20,6 +21,7 @@ import { claveDe } from '@/tools/bandeja';
 import { coloresDelTema, conLasImagenes, documentoDe } from '@/tools/formato';
 import { interpolar } from '@/tools/interpolar';
 import { type Pane, paneVisibility } from '@/tools/panes';
+import { describePgp } from '@/tools/pgp';
 import { describeSmime, visibleAttachments } from '@/tools/smime';
 
 const props = defineProps<{
@@ -74,6 +76,9 @@ watch(
  * quiere abrirlo.
  */
 const smime = computed(() => describeSmime(props.cuerpo?.smime, props.cuerpo?.adjuntos ?? []));
+const pgp = computed(() => describePgp(props.cuerpo?.pgp));
+/** Si el cuerpo no se dibuja: cifrado, sea S/MIME o PGP, que no se pudo abrir. */
+const bodyHidden = computed(() => smime.value.bodyHidden || pgp.value.bodyHidden);
 const attachments = computed(() => visibleAttachments(props.cuerpo?.adjuntos ?? []));
 
 /** El formato del mensaje abierto, si trajo alguno. */
@@ -333,6 +338,7 @@ const cuando = computed(() => {
           <!-- Con el cuerpo traído, que es de donde sale: la lectura de la lista
                no verifica ni descifra nada. -->
           <SmimeBadges v-if="cuerpo" :view="smime" />
+          <PgpBadges v-if="cuerpo" :view="pgp" />
 
           <div class="flex flex-wrap gap-2 pt-1">
             <!-- Responder sólo cuando el mensaje ya está traído: la respuesta
@@ -382,6 +388,14 @@ const cuando = computed(() => {
             :title="t('smime.noSePudoAbrir')"
             class="mx-4 mt-3">
             {{ t('smime.noSePudoAbrirPorQue') }}
+          </AlertMessage>
+          <AlertMessage
+            v-else-if="pgp.encryption === 'unavailable'"
+            tone="warning"
+            icon="channel-insecure-symbolic"
+            :title="t('pgp.noSePudoAbrir')"
+            class="mx-4 mt-3">
+            {{ t('pgp.noSePudoAbrirPorQue') }}
           </AlertMessage>
           <!-- Lo mismo, sin alarma: la lectura en vivo no descifra, y que todavía
                no se vea no quiere decir que no se vaya a poder. -->
@@ -438,7 +452,7 @@ const cuando = computed(() => {
 
                El documento que va adentro trae además su propia política, que no
                deja cargar nada. Ver `tools/formato.ts`. -->
-          <template v-if="smime.bodyHidden"></template>
+          <template v-if="bodyHidden"></template>
           <template v-else-if="conFormato && formato">
             <!-- El botón existe porque la decisión es de la persona y no de quien
                  escribió el correo. Se va en cuanto se aprieta: lo que queda es lo
@@ -494,12 +508,12 @@ const cuando = computed(() => {
                raro o cuando no se le tiene confianza a quien lo mandó. -->
           <div class="flex items-center gap-2 px-4 pb-4">
             <ActionButton
-              v-if="formato && !smime.bodyHidden"
+              v-if="formato && !bodyHidden"
               :label="conFormato ? t('mensaje.verTextoPelado') : t('mensaje.verConFormato')"
               variant="secondary"
               size="sm"
               @click="conFormato = !conFormato" />
-            <span v-if="!formato && !smime.bodyHidden" class="text-body-xs text-tx-muted">{{ t('mensaje.soloTexto') }}</span>
+            <span v-if="!formato && !bodyHidden" class="text-body-xs text-tx-muted">{{ t('mensaje.soloTexto') }}</span>
           </div>
         </template>
       </div>

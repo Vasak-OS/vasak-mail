@@ -144,6 +144,9 @@ redactar:
   firmar: Sign with S/MIME
   firmarPorQue: With your certificate. Without one for this account, the message will not go out.
   firmarSinCertificado: Import this account's certificate in Preferences to be able to sign.
+  firmarPgp: Sign with OpenPGP
+  firmarPgpPorQue: With your key. Without one for this account, the message will not go out.
+  firmarPgpSinClave: Import this account's key in Preferences to be able to sign.
   respuestaACifrado: You are replying to an encrypted message. The reply quotes its text and goes out unencrypted.
 smime:
   # `{0}` is the address of the certificate that signed. Never "valid": what was
@@ -185,6 +188,47 @@ smime:
   errorMalformed: The .p12 could not be read (is it not a PFX, or is the key missing?).
   errorKeyringLocked: The keyring is locked; unlock it and try again.
   errorFailed: The operation with the certificate could not be completed.
+pgp:
+  cifrado: Encrypted
+  cifradoPorQue: The message arrived encrypted with OpenPGP and was opened with your key.
+  noSePudoAbrir: Encrypted, could not be opened
+  noSePudoAbrirPorQue: >-
+    It may be encrypted for another key, or with a method that is not supported yet.
+  firmaTitulo: OpenPGP signature
+  firmaConocida: Signed, known key
+  firmaConocidaPorQue: >-
+    The signature matches the key we already had stored for this sender. It tells
+    you the message was not modified and was signed by the same key as always,
+    not who they really are: nobody checked the fingerprint.
+  firmaDesconocida: Signed, unknown key
+  firmaDesconocidaPorQue: >-
+    The message is signed, but we had no key for this sender yet, so we cannot
+    check who signed it.
+  firmaNoVerificable: Signed, not verifiable
+  firmaNoVerificablePorQue: >-
+    The message is signed, but the signature does not match the key we have for
+    this sender: it may have been altered or signed by another key.
+  huella: Fingerprint
+  # Importing each account's identity (secret key), in Preferences.
+  seccion: OpenPGP
+  seccionPorQue: >-
+    Your secret key, in a .asc, .gpg or .key file. It is stored in the system,
+    encrypted, and is used to sign that account's messages.
+  elegir: Choose key file
+  elegirTitulo: Choose the key
+  filtro: OpenPGP key (.asc, .gpg, .pgp, .key)
+  contrasena: Key passphrase (empty if it has none)
+  importar: Import
+  quitar: Remove
+  ausente: This account does not have a key to sign with yet.
+  errorWrongPassword: The passphrase does not unlock the key.
+  errorTooBig: The file is larger than allowed (1 MiB).
+  errorAddressMismatch: The key does not carry this account's address.
+  errorMalformed: The key could not be read (is it an OpenPGP secret key?).
+  errorKeyringLocked: The keyring is locked; unlock it and try again.
+  errorUnsupportedLegacy: The key format is not supported.
+  errorFailed: The operation with the key could not be completed.
+
 
 deshacer:
   # `{0}` is the seconds left.
