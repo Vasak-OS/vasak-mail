@@ -147,6 +147,15 @@ redactar:
   firmarPgp: Sign with OpenPGP
   firmarPgpPorQue: With your key. Without one for this account, the message will not go out.
   firmarPgpSinClave: Import this account's key in Preferences to be able to sign.
+  cifrarPgp: "Encrypt with OpenPGP"
+  cifrarPgpPorQue: "With each recipient's key. Only you and they will be able to read it."
+  cifrarPgpFalta: "Missing key for: {0}. Without it the message cannot be encrypted."
+  cifrarPgpResolviendo: "Looking up the recipients' keys…"
+  cifrarPgpSinDestinatarios: "Add recipients to be able to encrypt."
+  claveDestinatarios: "Recipient keys"
+  clave_resolving: "Resolving"
+  clave_yes: "Has key"
+  clave_no: "No usable key"
   respuestaACifrado: You are replying to an encrypted message. The reply quotes its text and goes out unencrypted.
 smime:
   # `{0}` is the address of the certificate that signed. Never "valid": what was

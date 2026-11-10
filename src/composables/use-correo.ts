@@ -153,6 +153,8 @@ export interface Borrador {
 	firmar?: boolean;
 	/** Método de firma explícito (`metodo_firma` en el cable). Ausente: lo decide `firmar`. */
 	metodo_firma?: 'none' | 'smime' | 'pgp';
+	/** Método de cifrado (`metodo_cifrado` en el cable). Ausente: sin cifrar. */
+	metodo_cifrado?: 'pgp';
 	/**
 	 * Cuándo recordar este mensaje si nadie responde, en epoch **segundos**.
 	 * Ausente: sin seguimiento. Se llama `recordar_en` como en el cable.

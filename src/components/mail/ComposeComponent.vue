@@ -5,6 +5,7 @@ import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import {
 	ActionButton,
 	AlertMessage,
+	Badge,
 	Dialog,
 	DialogContent,
 	DialogTitle,
@@ -19,7 +20,16 @@ import {
 	TextArea,
 	TextInput,
 } from '@vasakgroup/vue-libvasak';
-import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from 'vue';
+import {
+	computed,
+	nextTick,
+	onBeforeUnmount,
+	onMounted,
+	reactive,
+	ref,
+	useTemplateRef,
+	watch,
+} from 'vue';
 import MomentPicker from '@/components/mail/MomentPicker.vue';
 import type { AdjuntoParaMandar, Borrador, Cuenta } from '@/composables/use-correo';
 import { interpolar } from '@/tools/interpolar';
@@ -293,6 +303,65 @@ function scheduleTyped() {
 }
 
 /** Cuándo recordar el mensaje si nadie responde. `null`: sin seguimiento. */
+/** Cifrar con OpenPGP: por mensaje, y sólo si hay clave de todos los destinatarios. */
+const encryptPgp = ref(props.inicial.metodo_cifrado === 'pgp');
+
+type KeyState = 'yes' | 'no';
+/** Caché por cuenta+dirección durante la sesión del compose: sin entrada, se está resolviendo. */
+const recipientKeys = reactive<Record<string, KeyState>>({});
+const keyId = (address: string) => `${props.cuenta}\n${address.toLowerCase()}`;
+/** To+Cc sin repetidos. */
+const recipients = computed(() => [
+	...new Set([...direcciones(para.value), ...direcciones(cc.value)]),
+]);
+const keyState = (address: string): KeyState | 'resolving' =>
+	recipientKeys[keyId(address)] ?? 'resolving';
+const missingKeys = computed(() => recipients.value.filter((a) => keyState(a) === 'no'));
+const resolvingKeys = computed(() => recipients.value.some((a) => keyState(a) === 'resolving'));
+const canEncryptPgp = computed(
+	() => recipients.value.length > 0 && recipients.value.every((a) => keyState(a) === 'yes')
+);
+
+async function resolveKey(address: string) {
+	const id = keyId(address);
+	try {
+		const key = await invoke<{ present: boolean; expired: boolean; revoked: boolean }>(
+			'resolver_clave_destinatario',
+			{ accountId: props.cuenta, address }
+		);
+		recipientKeys[id] = key?.present === true && !key.expired && !key.revoked ? 'yes' : 'no';
+	} catch {
+		recipientKeys[id] = 'no'; // falla cerrado
+	}
+}
+
+// La resolución puede ir a la red (WKD): con debounce, para no pegar en cada tecla.
+let keyTimer: ReturnType<typeof setTimeout> | undefined;
+watch(
+	[recipients, () => props.cuenta],
+	() => {
+		clearTimeout(keyTimer);
+		keyTimer = setTimeout(() => {
+			for (const a of recipients.value) {
+				if (a.includes('@') && !(keyId(a) in recipientKeys)) void resolveKey(a);
+			}
+		}, 500);
+	},
+	{ immediate: true }
+);
+onBeforeUnmount(() => clearTimeout(keyTimer));
+watch(canEncryptPgp, (ok) => {
+	if (!ok) encryptPgp.value = false;
+});
+
+const encryptDescription = computed(() => {
+	if (missingKeys.value.length)
+		return t('redactar.cifrarPgpFalta').replace('{0}', missingKeys.value.join(', '));
+	if (resolvingKeys.value) return t('redactar.cifrarPgpResolviendo');
+	if (!recipients.value.length) return t('redactar.cifrarPgpSinDestinatarios');
+	return t('redactar.cifrarPgpPorQue');
+});
+
 const recordarEn = ref<Date | null>(null);
 
 /** El borrador con lo que hay en pantalla. */
@@ -307,6 +376,7 @@ function armar(): Borrador {
 		// Sólo cuando se pidió: apagado no viaja, como en el servicio.
 		firmar: sign.value || undefined,
 		metodo_firma: signPgp.value ? 'pgp' : undefined,
+		metodo_cifrado: encryptPgp.value ? 'pgp' : undefined,
 		// Igual: sin seguimiento el campo no viaja.
 		recordar_en: recordarEn.value ? enSegundos(recordarEn.value) : undefined,
 	};
@@ -375,6 +445,16 @@ function cerrar() {
           <TextInput :id="id" v-model="cc" autocomplete="off" />
         </FormGroup>
 
+        <ul v-if="recipients.length" class="flex min-w-0 flex-wrap gap-1.5" :aria-label="t('redactar.claveDestinatarios')">
+          <li v-for="a in recipients" :key="a" class="min-w-0 max-w-full">
+            <Badge
+              :tone="{ yes: 'success', no: 'warning', resolving: 'neutral' }[keyState(a)] as 'success' | 'warning' | 'neutral'"
+              dot
+              :label="`${a} · ${t(`redactar.clave_${keyState(a)}`)}`"
+              class="max-w-full truncate" />
+          </li>
+        </ul>
+
         <FormGroup v-slot="{ id }" :label="t('redactar.asunto')" custom-class="gap-0.5">
           <TextInput :id="id" v-model="asunto" autocomplete="off" />
         </FormGroup>
@@ -406,6 +486,14 @@ function cerrar() {
           :description="canSignPgp ? t('redactar.firmarPgpPorQue') : t('redactar.firmarPgpSinClave')"
           :disabled="!canSignPgp"
           icon="application-certificate-symbolic"
+          icon-type="symbol" />
+
+        <SwitchRow
+          v-model="encryptPgp"
+          :label="t('redactar.cifrarPgp')"
+          :description="encryptDescription"
+          :disabled="!canEncryptPgp"
+          icon="channel-secure-symbolic"
           icon-type="symbol" />
 
         <AlertMessage v-if="repliesToEncrypted" tone="info" icon="channel-insecure-symbolic">
