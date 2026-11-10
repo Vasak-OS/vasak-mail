@@ -243,6 +243,7 @@ pgp:
   errorAddressMismatch: La clave no tiene la dirección de esta cuenta.
   errorMalformed: No se pudo leer la clave (¿no es una clave secreta OpenPGP?).
   errorKeyringLocked: El llavero está bloqueado; desbloquealo y probá de nuevo.
+  errorUnsupportedLegacy: El formato de la clave no está soportado.
   errorFailed: No se pudo completar la operación con la clave.
 
 

@@ -226,6 +226,7 @@ pgp:
   errorAddressMismatch: The key does not carry this account's address.
   errorMalformed: The key could not be read (is it an OpenPGP secret key?).
   errorKeyringLocked: The keyring is locked; unlock it and try again.
+  errorUnsupportedLegacy: The key format is not supported.
   errorFailed: The operation with the key could not be completed.
 
 
