@@ -66,6 +66,35 @@ const asunto = ref(props.inicial.asunto);
 const cuerpo = ref(props.inicial.cuerpo);
 /** Firmar con S/MIME. Apagado por omisión: firmar es una decisión por mensaje. */
 const sign = ref(props.inicial.firmar ?? false);
+/** Firmar con OpenPGP. Excluyente con S/MIME: un mensaje se firma de una forma. */
+const signPgp = ref(props.inicial.metodo_firma === 'pgp');
+watch(sign, (on) => {
+	if (on) signPgp.value = false;
+});
+watch(signPgp, (on) => {
+	if (on) sign.value = false;
+});
+
+/**
+ * Si la cuenta tiene clave PGP para firmar. A diferencia de S/MIME falla
+ * cerrado: el interruptor sólo se habilita con una identidad presente.
+ */
+const canSignPgp = ref(false);
+
+async function refreshCanSignPgp() {
+	try {
+		const state = await invoke<{ present: boolean }>('estado_identidad_pgp', {
+			accountId: props.cuenta,
+		});
+		canSignPgp.value = state?.present === true;
+	} catch {
+		canSignPgp.value = false;
+	}
+	if (!canSignPgp.value) signPgp.value = false;
+}
+
+onMounted(refreshCanSignPgp);
+watch(() => props.cuenta, refreshCanSignPgp);
 
 /**
  * Si la cuenta de la que sale tiene certificado para firmar.
@@ -277,6 +306,7 @@ function armar(): Borrador {
 		adjuntos: adjuntos.value,
 		// Sólo cuando se pidió: apagado no viaja, como en el servicio.
 		firmar: sign.value || undefined,
+		metodo_firma: signPgp.value ? 'pgp' : undefined,
 		// Igual: sin seguimiento el campo no viaja.
 		recordar_en: recordarEn.value ? enSegundos(recordarEn.value) : undefined,
 	};
@@ -367,6 +397,14 @@ function cerrar() {
           :label="t('redactar.firmar')"
           :description="canSign ? t('redactar.firmarPorQue') : t('redactar.firmarSinCertificado')"
           :disabled="!canSign"
+          icon="application-certificate-symbolic"
+          icon-type="symbol" />
+
+        <SwitchRow
+          v-model="signPgp"
+          :label="t('redactar.firmarPgp')"
+          :description="canSignPgp ? t('redactar.firmarPgpPorQue') : t('redactar.firmarPgpSinClave')"
+          :disabled="!canSignPgp"
           icon="application-certificate-symbolic"
           icon-type="symbol" />
 
