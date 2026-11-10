@@ -128,7 +128,7 @@ const llamadasAlResolver = () => invocaciones.filter((i) => i.comando === RESOLV
 async function borradorEnviado(vista: VueWrapper): Promise<Borrador> {
 	document.body.querySelector('form')?.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
 	await asentar();
-	return (vista.emitted('enviar')?.[0] as [Borrador, string])[0];
+	return (vista.emitted('enviar')?.at(-1) as [Borrador, string])[0];
 }
 
 /** Escribe en el campo con esa etiqueta, como quien teclea. */
@@ -250,11 +250,26 @@ describe('el redactor: con clave de todos', () => {
 		expect(JSON.stringify(await borradorEnviado(vista))).not.toContain('metodo_cifrado');
 	});
 
-	test('un borrador con `metodo_cifrado: pgp` arranca encendido', async () => {
+	/**
+	 * Cambió a propósito: antes un borrador restaurado con `metodo_cifrado: pgp`
+	 * arrancaba encendido. Pero al montar las claves aún se están resolviendo, y
+	 * un interruptor encendido sin clave de todos mostraba «cifrado» sobre un
+	 * mensaje que no se iba a cifrar. Ahora arranca apagado y la persona lo
+	 * prende cuando ya se sabe que todos tienen clave.
+	 */
+	test('un borrador con `metodo_cifrado: pgp` arranca apagado y, resueltas las claves, se prende a mano', async () => {
 		claves['ana@ejemplo.org'] = USABLE;
 		const vista = redactar({ metodo_cifrado: 'pgp' });
-		await esperarClaves();
+		await asentar();
 
+		expect(encendido()).toBe(false);
+		await esperarClaves();
+		expect(deshabilitado(cifrar())).toBe(false);
+		expect(encendido()).toBe(false);
+		expect(JSON.stringify(await borradorEnviado(vista))).not.toContain('metodo_cifrado');
+
+		cifrar().click();
+		await asentar();
 		expect(encendido()).toBe(true);
 		expect((await borradorEnviado(vista)).metodo_cifrado).toBe('pgp');
 	});
@@ -272,6 +287,27 @@ describe('el redactor: con clave de todos', () => {
 
 		expect(encendido()).toBe(false);
 		expect(deshabilitado(cifrar())).toBe(true);
+		expect(JSON.stringify(await borradorEnviado(vista))).not.toContain('metodo_cifrado');
+	});
+});
+
+describe('el redactor: un borrador que pide cifrar sin clave de todos', () => {
+	test('no muestra cifrado ni lo manda: apagado y sin `metodo_cifrado`', async () => {
+		claves['ana@ejemplo.org'] = USABLE;
+		const vista = redactar({ para: ['ana@ejemplo.org', 'sin@ejemplo.org'], metodo_cifrado: 'pgp' });
+		await asentar();
+		expect(encendido()).toBe(false);
+
+		await esperarClaves();
+		expect(deshabilitado(cifrar())).toBe(true);
+		expect(encendido()).toBe(false);
+		expect(texto()).toContain(faltan('sin@ejemplo.org'));
+		expect(JSON.stringify(await borradorEnviado(vista))).not.toContain('metodo_cifrado');
+	});
+
+	test('mandar antes de que resuelvan las claves tampoco cifra', async () => {
+		const vista = redactar({ metodo_cifrado: 'pgp' });
+		await asentar();
 		expect(JSON.stringify(await borradorEnviado(vista))).not.toContain('metodo_cifrado');
 	});
 });
