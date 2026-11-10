@@ -2280,6 +2280,118 @@ mod tests {
         assert!(!serde_json::to_string(&apagado).unwrap().contains("firmar"));
     }
 
+    // ── OpenPGP ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn el_estado_pgp_del_almacen_llega_a_la_ventana() {
+        let abierto = opened_from_store(mensaje_del_almacen(serde_json::json!({
+            "pgp": {"signature": "known", "signer": "AAAA BBBB", "encryption": "opened"}
+        })))
+        .unwrap();
+
+        assert_eq!(
+            abierto.pgp,
+            Some(PgpStatus {
+                signature: Some("known".into()),
+                signer: Some("AAAA BBBB".into()),
+                encryption: Some(Encryption::Opened),
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(&abierto).unwrap()["pgp"],
+            serde_json::json!({"signature": "known", "signer": "AAAA BBBB", "encryption": "opened"})
+        );
+    }
+
+    #[test]
+    fn un_mensaje_sin_pgp_se_abre_sin_estado() {
+        let sin_clave = opened_from_store(mensaje_del_almacen(serde_json::json!({}))).unwrap();
+        let con_null =
+            opened_from_store(mensaje_del_almacen(serde_json::json!({"pgp": null}))).unwrap();
+
+        assert_eq!(sin_clave.pgp, None);
+        assert_eq!(con_null.pgp, None);
+        assert!(serde_json::to_value(&sin_clave).unwrap()["pgp"].is_null());
+    }
+
+    /// Un valor nuevo de `signature` o de `encryption` no tira la apertura: la
+    /// firma viaja tal cual (la ventana la lee como no verificable) y el cifrado
+    /// se lee como `Other`.
+    #[test]
+    fn un_estado_pgp_que_no_conocemos_no_rompe_la_apertura() {
+        let abierto = opened_from_store(mensaje_del_almacen(serde_json::json!({
+            "pgp": {"signature": "futuro", "signer": null, "encryption": "otro-metodo"}
+        })))
+        .unwrap();
+
+        let pgp = abierto.pgp.unwrap();
+        assert_eq!(pgp.signature.as_deref(), Some("futuro"));
+        assert_eq!(pgp.encryption, Some(Encryption::Other));
+        assert_eq!(pgp.signer, None);
+    }
+
+    #[test]
+    fn la_lectura_en_vivo_no_trae_estado_pgp() {
+        let abierto: Abierto =
+            serde_json::from_str(r#"{"texto":"Hola","recortado":false,"adjuntos":[]}"#).unwrap();
+
+        assert_eq!(abierto.pgp, None);
+        assert_eq!(
+            serde_json::from_str::<PgpStatus>("{}").unwrap(),
+            PgpStatus::default()
+        );
+    }
+
+    /// `metodo_firma` sólo viaja cuando se pidió: la cola vieja y el envío con
+    /// S/MIME quedan idénticos.
+    #[test]
+    fn el_borrador_serializa_metodo_firma_solo_si_esta() {
+        let sin = Borrador {
+            para: vec!["juan@otro.com".into()],
+            ..Default::default()
+        };
+        assert!(serde_json::to_value(&sin)
+            .unwrap()
+            .get("metodo_firma")
+            .is_none());
+
+        let con = Borrador {
+            sign_method: Some(SignMethod::Pgp),
+            ..sin
+        };
+        let json = serde_json::to_value(&con).unwrap();
+        assert_eq!(json["metodo_firma"], serde_json::json!("pgp"), "{json}");
+        assert!(json.get("sign_method").is_none(), "{json}");
+    }
+
+    #[test]
+    fn el_borrador_lee_metodo_firma_y_lo_conserva_de_ida_y_vuelta() {
+        let leido: Borrador =
+            serde_json::from_str(r#"{"para":["a@x.com"],"metodo_firma":"pgp"}"#).unwrap();
+        assert_eq!(leido.sign_method, Some(SignMethod::Pgp));
+        assert!(!leido.sign);
+
+        let reescrito = serde_json::to_string(&leido).unwrap();
+        assert!(reescrito.contains(r#""metodo_firma":"pgp""#), "{reescrito}");
+        assert_eq!(serde_json::from_str::<Borrador>(&reescrito).unwrap(), leido);
+
+        let legacy: Borrador = serde_json::from_str(r#"{"para":["a@x.com"]}"#).unwrap();
+        assert_eq!(legacy.sign_method, None);
+    }
+
+    #[test]
+    fn el_estado_pgp_de_la_identidad_se_lee_con_y_sin_clave() {
+        let con: EstadoPgp = serde_json::from_str(
+            r#"{"present":true,"fingerprint":"AAAA","uids":["Ana <ana@x.org>"]}"#,
+        )
+        .unwrap();
+        assert!(con.present);
+        assert_eq!(con.uids, vec!["Ana <ana@x.org>".to_string()]);
+
+        let sin: EstadoPgp = serde_json::from_str(r#"{"present":false}"#).unwrap();
+        assert_eq!(sin, EstadoPgp::default());
+    }
+
     fn stored(uid: u64, mailbox: &str) -> StoredMessage {
         serde_json::from_value(serde_json::json!({
             "uid": uid, "mailbox_name": mailbox, "from_addr": "ana@x.com",
@@ -2605,6 +2717,9 @@ mod tests {
         smime_calls: Arc<std::sync::Mutex<Vec<SmimeCall>>>,
         wrong_password: Arc<std::sync::atomic::AtomicBool>,
         removed: Arc<std::sync::Mutex<Vec<String>>>,
+        pgp_calls: Arc<std::sync::Mutex<Vec<PgpCall>>>,
+        pgp_wrong_password: Arc<std::sync::atomic::AtomicBool>,
+        pgp_removed: Arc<std::sync::Mutex<Vec<String>>>,
     }
 
     #[zbus::interface(name = "ar.net.vasak.os.AccountsSync")]
@@ -2644,6 +2759,47 @@ mod tests {
             });
             if self
                 .wrong_password
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                return Err(FakeSmimeError::WrongPassword("no abre".into()));
+            }
+            Ok(())
+        }
+
+        async fn get_pgp_identity(&self, account_id: String) -> String {
+            match account_id.as_str() {
+                "ana" => {
+                    r#"{"present":true,"fingerprint":"AAAA BBBB","uids":["Ana <ana@ejemplo.org>"]}"#
+                }
+                _ => r#"{"present":false}"#,
+            }
+            .to_string()
+        }
+
+        async fn remove_pgp_identity(&self, account_id: String) {
+            self.pgp_removed.lock().unwrap().push(account_id);
+        }
+
+        async fn import_pgp_identity(
+            &self,
+            account_id: String,
+            key: zbus::zvariant::OwnedFd,
+            passphrase: zbus::zvariant::OwnedFd,
+        ) -> Result<(), FakeSmimeError> {
+            let mirar = |fd: zbus::zvariant::OwnedFd| {
+                let fd = OwnedFd::from(fd);
+                (
+                    seals_of(&fd).contains(rustix::fs::SealFlags::WRITE),
+                    contents_of(&fd),
+                )
+            };
+            self.pgp_calls.lock().unwrap().push(PgpCall {
+                account_id,
+                key: mirar(key),
+                passphrase: mirar(passphrase),
+            });
+            if self
+                .pgp_wrong_password
                 .load(std::sync::atomic::Ordering::SeqCst)
             {
                 return Err(FakeSmimeError::WrongPassword("no abre".into()));
@@ -2885,8 +3041,9 @@ mod tests {
             Err(STORE_PERMISSION_DENIED.to_string())
         );
 
-        // Y, por el mismo servidor, importar la identidad S/MIME.
+        // Y, por el mismo servidor, importar la identidad S/MIME y la OpenPGP.
         importar_por_el_bus(&sync).await;
+        pgp_por_el_bus(&sync).await;
     }
 
     /// El JSON de una `Regla` usa los nombres del cable del servicio: acciones
@@ -3125,6 +3282,56 @@ mod tests {
         );
         quitar_identidad_smime("ana").await.unwrap();
         assert_eq!(*sync.removed.lock().unwrap(), vec!["ana".to_string()]);
+    }
+
+    /// Lo que recibió el servicio de mentira en `ImportPgpIdentity`.
+    #[derive(Debug, Clone, PartialEq)]
+    struct PgpCall {
+        account_id: String,
+        key: (bool, Vec<u8>),
+        passphrase: (bool, Vec<u8>),
+    }
+
+    /// Lo mismo que [`importar_por_el_bus`] para OpenPGP: `ImportPgpIdentity(s, h, h)`
+    /// llega con la clave y la contraseña (vacía incluida) en fds sellados, el
+    /// error se traduce al código de la ventana, y estado y quitar llevan la cuenta.
+    async fn pgp_por_el_bus(sync: &FakeSync) {
+        let key_bytes = b"-----BEGIN PGP PRIVATE KEY BLOCK-----";
+        let key = sealed_memfd(key_bytes).unwrap();
+        // Una clave sin proteger se importa con contraseña vacía.
+        let vacia = sealed_memfd(b"").unwrap();
+
+        importar_identidad_pgp("ana", &key, &vacia).await.unwrap();
+        assert_eq!(
+            *sync.pgp_calls.lock().unwrap(),
+            vec![PgpCall {
+                account_id: "ana".into(),
+                key: (true, key_bytes.to_vec()),
+                passphrase: (true, Vec::new()),
+            }]
+        );
+
+        sync.pgp_wrong_password
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let error = importar_identidad_pgp("ana", &key, &vacia)
+            .await
+            .unwrap_err();
+        assert_eq!(smime_error_code(&error), "WrongPassword", "{error:?}");
+
+        assert_eq!(
+            estado_identidad_pgp("ana").await.unwrap(),
+            EstadoPgp {
+                present: true,
+                fingerprint: Some("AAAA BBBB".into()),
+                uids: vec!["Ana <ana@ejemplo.org>".into()],
+            }
+        );
+        assert_eq!(
+            estado_identidad_pgp("otra").await.unwrap(),
+            EstadoPgp::default()
+        );
+        quitar_identidad_pgp("ana").await.unwrap();
+        assert_eq!(*sync.pgp_removed.lock().unwrap(), vec!["ana".to_string()]);
     }
 
     #[test]
