@@ -515,7 +515,7 @@ function alApretar(evento: KeyboardEvent) {
 			void refresh();
 			break;
 		case 'irALaEntrada':
-			elegirCasilla('INBOX');
+			void elegirCasilla('INBOX');
 			break;
 		case 'buscar':
 			void goToSearch();
