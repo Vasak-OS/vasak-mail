@@ -164,6 +164,15 @@ redactar:
   firmarPgp: Firmar con OpenPGP
   firmarPgpPorQue: Con tu clave. Sin una para esta cuenta, el mensaje no sale.
   firmarPgpSinClave: Importá la clave de esta cuenta en Preferencias para poder firmar.
+  cifrarPgp: "Cifrar con OpenPGP"
+  cifrarPgpPorQue: "Con la clave de cada destinatario. Sólo vos y ellos podrán leerlo."
+  cifrarPgpFalta: "Falta la clave de: {0}. Sin ella no se puede cifrar."
+  cifrarPgpResolviendo: "Buscando la clave de los destinatarios…"
+  cifrarPgpSinDestinatarios: "Agregá destinatarios para poder cifrar."
+  claveDestinatarios: "Claves de los destinatarios"
+  clave_resolving: "Resolviendo"
+  clave_yes: "Con clave"
+  clave_no: "Sin clave usable"
   respuestaACifrado: Estás respondiendo a un mensaje cifrado. La respuesta cita su texto y sale sin cifrar.
 smime:
   # `{0}` es la dirección del certificado que firmó. Nunca «válida»: lo que se

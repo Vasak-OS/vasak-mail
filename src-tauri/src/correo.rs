@@ -874,6 +874,14 @@ pub struct Borrador {
         rename = "recordar_en"
     )]
     pub remind_at: Option<i64>,
+    /// El método de cifrado (`metodo_cifrado` en el cable). Ausente no se
+    /// serializa: la cola vieja y los envíos sin cifrar quedan idénticos.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "metodo_cifrado"
+    )]
+    pub encrypt_method: Option<EncryptMethod>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -886,6 +894,13 @@ fn is_false(value: &bool) -> bool {
 pub enum SignMethod {
     None,
     Smime,
+    Pgp,
+}
+
+/// Cómo se cifra un mensaje al salir, tal como lo nombra el servicio.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EncryptMethod {
     Pgp,
 }
 
@@ -1330,6 +1345,41 @@ pub async fn estado_identidad_pgp(account_id: &str) -> Result<EstadoPgp, String>
     let json: String = store()
         .map_err(|_| "Failed".to_string())?
         .call_on(RUTA, INTERFAZ, "GetPgpIdentity", &(account_id,))
+        .await
+        .map_err(|e| smime_error_code(&e).to_string())?;
+    serde_json::from_str(&json).map_err(|_| "Failed".to_string())
+}
+
+/// Si hay clave de cifrado usable para un destinatario: lo que devuelve
+/// `ResolveRecipientKey`. `present` es sólo «hay subclave de cifrado usable».
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ClaveDestinatario {
+    #[serde(default)]
+    pub present: bool,
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub fingerprint: Option<String>,
+    #[serde(default)]
+    pub expired: bool,
+    #[serde(default)]
+    pub revoked: bool,
+}
+
+/// Resuelve la clave de un destinatario (puede ir a la red por WKD). Mismo
+/// código de error corto que el estado de la identidad.
+pub async fn resolver_clave_destinatario(
+    account_id: &str,
+    address: &str,
+) -> Result<ClaveDestinatario, String> {
+    let json: String = store()
+        .map_err(|_| "Failed".to_string())?
+        .call_on(
+            RUTA,
+            INTERFAZ,
+            "ResolveRecipientKey",
+            &(account_id, address),
+        )
         .await
         .map_err(|e| smime_error_code(&e).to_string())?;
     serde_json::from_str(&json).map_err(|_| "Failed".to_string())
@@ -2785,6 +2835,26 @@ mod tests {
             }
         }
 
+        async fn resolve_recipient_key(
+            &self,
+            account_id: String,
+            address: String,
+        ) -> Result<String, FakeSmimeError> {
+            match (account_id.as_str(), address.as_str()) {
+                ("ana", "lucia@ejemplo.org") => Ok(
+                    r#"{"present":true,"source":"wkd","fingerprint":"CCCC DDDD","expired":false,"revoked":false}"#
+                        .to_string(),
+                ),
+                ("ana", "vieja@ejemplo.org") => Ok(
+                    r#"{"present":true,"source":"keyring","fingerprint":"EEEE","expired":true,"revoked":true}"#
+                        .to_string(),
+                ),
+                (_, "mala@ejemplo.org") => Err(FakeSmimeError::WrongPassword("detalle largo".into())),
+                (_, "rota@ejemplo.org") => Ok("esto no es json".to_string()),
+                _ => Ok(r#"{"present":false}"#.to_string()),
+            }
+        }
+
         async fn remove_pgp_identity(&self, account_id: String) -> Result<(), FakeSmimeError> {
             if account_id == "mala" {
                 return Err(FakeSmimeError::WrongPassword("detalle largo".into()));
@@ -3057,6 +3127,7 @@ mod tests {
         // Y, por el mismo servidor, importar la identidad S/MIME y la OpenPGP.
         importar_por_el_bus(&sync).await;
         pgp_por_el_bus(&sync).await;
+        clave_de_destinatario_por_el_bus().await;
     }
 
     /// El JSON de una `Regla` usa los nombres del cable del servicio: acciones
@@ -3356,6 +3427,88 @@ mod tests {
         );
         quitar_identidad_pgp("ana").await.unwrap();
         assert_eq!(*sync.pgp_removed.lock().unwrap(), vec!["ana".to_string()]);
+    }
+
+    /// `ResolveRecipientKey(s, s)` por el cable: el JSON del servicio llega
+    /// entero, y los errores salen como código pelado o «Failed».
+    async fn clave_de_destinatario_por_el_bus() {
+        assert_eq!(
+            resolver_clave_destinatario("ana", "lucia@ejemplo.org")
+                .await
+                .unwrap(),
+            ClaveDestinatario {
+                present: true,
+                source: "wkd".into(),
+                fingerprint: Some("CCCC DDDD".into()),
+                expired: false,
+                revoked: false,
+            }
+        );
+        let vieja = resolver_clave_destinatario("ana", "vieja@ejemplo.org")
+            .await
+            .unwrap();
+        assert!(vieja.expired && vieja.revoked, "{vieja:?}");
+        assert_eq!(
+            resolver_clave_destinatario("ana", "nadie@ejemplo.org")
+                .await
+                .unwrap(),
+            ClaveDestinatario::default()
+        );
+        assert_eq!(
+            resolver_clave_destinatario("ana", "mala@ejemplo.org")
+                .await
+                .unwrap_err(),
+            "WrongPassword"
+        );
+        assert_eq!(
+            resolver_clave_destinatario("ana", "rota@ejemplo.org")
+                .await
+                .unwrap_err(),
+            "Failed"
+        );
+    }
+
+    #[test]
+    fn el_borrador_serializa_metodo_cifrado_solo_si_esta() {
+        let sin = Borrador {
+            para: vec!["juan@otro.com".into()],
+            ..Default::default()
+        };
+        assert!(serde_json::to_value(&sin)
+            .unwrap()
+            .get("metodo_cifrado")
+            .is_none());
+
+        let con = Borrador {
+            encrypt_method: Some(EncryptMethod::Pgp),
+            ..sin
+        };
+        let json = serde_json::to_value(&con).unwrap();
+        assert_eq!(json["metodo_cifrado"], serde_json::json!("pgp"), "{json}");
+        assert!(json.get("encrypt_method").is_none(), "{json}");
+
+        let reescrito = serde_json::to_string(&con).unwrap();
+        assert_eq!(serde_json::from_str::<Borrador>(&reescrito).unwrap(), con);
+    }
+
+    #[test]
+    fn un_borrador_viejo_sin_metodo_cifrado_se_lee_sin_cifrar() {
+        let viejo: Borrador = serde_json::from_str(r#"{"para":["a@x.com"]}"#).unwrap();
+        assert_eq!(viejo.encrypt_method, None);
+    }
+
+    #[test]
+    fn la_clave_del_destinatario_se_lee_del_json_del_servicio() {
+        let clave: ClaveDestinatario = serde_json::from_str(
+            r#"{"present":true,"source":"wkd","fingerprint":"AAAA","expired":true,"revoked":false}"#,
+        )
+        .unwrap();
+        assert!(clave.present && clave.expired && !clave.revoked);
+        assert_eq!(clave.source, "wkd");
+        assert_eq!(clave.fingerprint.as_deref(), Some("AAAA"));
+        // Sin campos: no hay clave, y nada de lo demás se supone.
+        let sin: ClaveDestinatario = serde_json::from_str(r#"{"present":false}"#).unwrap();
+        assert_eq!(sin, ClaveDestinatario::default());
     }
 
     #[test]
