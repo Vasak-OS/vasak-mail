@@ -5,8 +5,8 @@
 use tauri::Manager;
 
 use crate::correo::{
-    self, Abierto, AdjuntoParaMandar, Borrador, Casilla, Cuenta, EstadoPgp, EstadoSmime, Pospuesto,
-    Regla, Resumen, Saliente, Seguimiento,
+    self, Abierto, AdjuntoParaMandar, Borrador, Casilla, ClaveDestinatario, Cuenta, EstadoPgp,
+    EstadoSmime, Pospuesto, Regla, Resumen, Saliente, Seguimiento,
 };
 use crate::mailto::{MailtoDraft, PendingMailto};
 use crate::store_access;
@@ -317,6 +317,16 @@ pub async fn importar_identidad_pgp(
 #[tauri::command]
 pub async fn estado_identidad_pgp(account_id: String) -> Result<EstadoPgp, String> {
     correo::estado_identidad_pgp(&account_id).await
+}
+
+/// La clave de cifrado de un destinatario. No muta nada; el servicio decide si
+/// sale a la red (WKD).
+#[tauri::command]
+pub async fn resolver_clave_destinatario(
+    account_id: String,
+    address: String,
+) -> Result<ClaveDestinatario, String> {
+    correo::resolver_clave_destinatario(&account_id, &address).await
 }
 
 /// Quita la identidad OpenPGP de una cuenta.

@@ -874,6 +874,14 @@ pub struct Borrador {
         rename = "recordar_en"
     )]
     pub remind_at: Option<i64>,
+    /// El método de cifrado (`metodo_cifrado` en el cable). Ausente no se
+    /// serializa: la cola vieja y los envíos sin cifrar quedan idénticos.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "metodo_cifrado"
+    )]
+    pub encrypt_method: Option<EncryptMethod>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -886,6 +894,13 @@ fn is_false(value: &bool) -> bool {
 pub enum SignMethod {
     None,
     Smime,
+    Pgp,
+}
+
+/// Cómo se cifra un mensaje al salir, tal como lo nombra el servicio.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EncryptMethod {
     Pgp,
 }
 
@@ -1330,6 +1345,41 @@ pub async fn estado_identidad_pgp(account_id: &str) -> Result<EstadoPgp, String>
     let json: String = store()
         .map_err(|_| "Failed".to_string())?
         .call_on(RUTA, INTERFAZ, "GetPgpIdentity", &(account_id,))
+        .await
+        .map_err(|e| smime_error_code(&e).to_string())?;
+    serde_json::from_str(&json).map_err(|_| "Failed".to_string())
+}
+
+/// Si hay clave de cifrado usable para un destinatario: lo que devuelve
+/// `ResolveRecipientKey`. `present` es sólo «hay subclave de cifrado usable».
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ClaveDestinatario {
+    #[serde(default)]
+    pub present: bool,
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub fingerprint: Option<String>,
+    #[serde(default)]
+    pub expired: bool,
+    #[serde(default)]
+    pub revoked: bool,
+}
+
+/// Resuelve la clave de un destinatario (puede ir a la red por WKD). Mismo
+/// código de error corto que el estado de la identidad.
+pub async fn resolver_clave_destinatario(
+    account_id: &str,
+    address: &str,
+) -> Result<ClaveDestinatario, String> {
+    let json: String = store()
+        .map_err(|_| "Failed".to_string())?
+        .call_on(
+            RUTA,
+            INTERFAZ,
+            "ResolveRecipientKey",
+            &(account_id, address),
+        )
         .await
         .map_err(|e| smime_error_code(&e).to_string())?;
     serde_json::from_str(&json).map_err(|_| "Failed".to_string())

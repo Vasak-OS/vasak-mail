@@ -98,6 +98,7 @@ pub fn run() {
             comandos::quitar_identidad_smime,
             comandos::importar_identidad_pgp,
             comandos::estado_identidad_pgp,
+            comandos::resolver_clave_destinatario,
             comandos::quitar_identidad_pgp,
             commands::webkit::tune_webview,
         ])
