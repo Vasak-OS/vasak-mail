@@ -373,7 +373,7 @@ function moverse(cuanto: number) {
 	const siguiente = actual < 0 ? (cuanto > 0 ? 0 : mensajes.value.length - 1) : actual + cuanto;
 	const destino = mensajes.value[siguiente];
 	if (destino) {
-		abrir(destino);
+		void abrir(destino);
 	}
 }
 
@@ -503,22 +503,22 @@ function alApretar(evento: KeyboardEvent) {
 			responderAlAbierto();
 			break;
 		case 'archive':
-			removeOpen('archive');
+			void removeOpen('archive');
 			break;
 		case 'delete':
-			removeOpen('delete');
+			void removeOpen('delete');
 			break;
 		case 'redactar':
-			escribir();
+			void escribir();
 			break;
 		case 'actualizar':
-			refresh();
+			void refresh();
 			break;
 		case 'irALaEntrada':
 			elegirCasilla('INBOX');
 			break;
 		case 'buscar':
-			goToSearch();
+			void goToSearch();
 			break;
 		case 'ayuda':
 			mostrandoAtajos.value = true;

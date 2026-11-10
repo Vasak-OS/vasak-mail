@@ -1324,17 +1324,24 @@ pub async fn importar_identidad_pgp(
         .await
 }
 
-/// El estado de la identidad OpenPGP de una cuenta.
+/// El estado de la identidad OpenPGP de una cuenta. El error es un código corto
+/// ([`smime_error_code`]), como el de importar, para que la ventana lo traduzca.
 pub async fn estado_identidad_pgp(account_id: &str) -> Result<EstadoPgp, String> {
-    let json = llamar("GetPgpIdentity", &(account_id,)).await?;
-    serde_json::from_str(&json).map_err(|e| format!("no se pudo leer el estado PGP: {e}"))
+    let json: String = store()
+        .map_err(|_| "Failed".to_string())?
+        .call_on(RUTA, INTERFAZ, "GetPgpIdentity", &(account_id,))
+        .await
+        .map_err(|e| smime_error_code(&e).to_string())?;
+    serde_json::from_str(&json).map_err(|_| "Failed".to_string())
 }
 
-/// Quita la identidad OpenPGP de una cuenta.
+/// Quita la identidad OpenPGP de una cuenta; mismo código de error.
 pub async fn quitar_identidad_pgp(account_id: &str) -> Result<(), String> {
-    llamar_sin_respuesta("RemovePgpIdentity", &(account_id,))
+    store()
+        .map_err(|_| "Failed".to_string())?
+        .call_on::<_, ()>(RUTA, INTERFAZ, "RemovePgpIdentity", &(account_id,))
         .await
-        .map_err(|e| format!("no se pudo quitar la identidad PGP: {e}"))
+        .map_err(|e| smime_error_code(&e).to_string())
 }
 
 /// El evento que ve la ventana cuando llega correo.

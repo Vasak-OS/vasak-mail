@@ -32,15 +32,17 @@ const NONE: PgpView = { signature: null, fingerprint: null, encryption: null, bo
 
 export function describePgp(pgp: PgpStatus | null | undefined): PgpView {
 	if (!pgp) return NONE;
-	const signature: PgpSignatureView | null =
-		pgp.signature == null
-			? null
-			: pgp.signature === 'known' || pgp.signature === 'unknown'
-				? pgp.signature
-				: 'unverifiable';
+	// Un valor que no conocemos cuenta como no verificable: lo conservador.
+	let signature: PgpSignatureView | null = null;
+	if (pgp.signature != null) {
+		signature =
+			pgp.signature === 'known' || pgp.signature === 'unknown' ? pgp.signature : 'unverifiable';
+	}
 	const fingerprint = signature === 'known' && pgp.signer?.trim() ? pgp.signer.trim() : null;
-	// Un valor que no conocemos cuenta como «no se pudo abrir», lo conservador.
-	const encryption =
-		pgp.encryption == null ? null : pgp.encryption === 'opened' ? 'opened' : 'unavailable';
+	// Igual con el cifrado: lo que no es `opened` cuenta como «no se pudo abrir».
+	let encryption: PgpView['encryption'] = null;
+	if (pgp.encryption != null) {
+		encryption = pgp.encryption === 'opened' ? 'opened' : 'unavailable';
+	}
 	return { signature, fingerprint, encryption, bodyHidden: encryption === 'unavailable' };
 }
