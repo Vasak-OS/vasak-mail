@@ -247,6 +247,20 @@ describe('la tarjeta de S/MIME: cada error tiene su mensaje', () => {
 		expect(new Set(textos).size).toBe(7);
 	});
 
+	test('un texto descriptivo que no es un código cae en el mensaje genérico', async () => {
+		contestar(STATE, SIN_IDENTIDAD);
+		const vista = tarjeta();
+		await asentar();
+		await llenar(vista);
+
+		fallar(IMPORT, 'no se pudo leer el certificado: permiso denegado');
+		await boton(vista, es['smime.importar']).trigger('click');
+		await asentar();
+
+		expect(vista.find('[role="alert"]').text()).toBe(es['smime.errorFailed']);
+		expect(vista.text()).not.toContain('permiso denegado');
+	});
+
 	test('un error al quitar también sale traducido', async () => {
 		contestar(STATE, CON_IDENTIDAD);
 		const vista = tarjeta();

@@ -2773,18 +2773,24 @@ mod tests {
             Ok(())
         }
 
-        async fn get_pgp_identity(&self, account_id: String) -> String {
+        async fn get_pgp_identity(&self, account_id: String) -> Result<String, FakeSmimeError> {
             match account_id.as_str() {
-                "ana" => {
+                "ana" => Ok(
                     r#"{"present":true,"fingerprint":"AAAA BBBB","uids":["Ana <ana@ejemplo.org>"]}"#
-                }
-                _ => r#"{"present":false}"#,
+                        .to_string(),
+                ),
+                "mala" => Err(FakeSmimeError::WrongPassword("detalle largo".into())),
+                "rota" => Ok("esto no es json".to_string()),
+                _ => Ok(r#"{"present":false}"#.to_string()),
             }
-            .to_string()
         }
 
-        async fn remove_pgp_identity(&self, account_id: String) {
+        async fn remove_pgp_identity(&self, account_id: String) -> Result<(), FakeSmimeError> {
+            if account_id == "mala" {
+                return Err(FakeSmimeError::WrongPassword("detalle largo".into()));
+            }
             self.pgp_removed.lock().unwrap().push(account_id);
+            Ok(())
         }
 
         async fn import_pgp_identity(
@@ -3336,6 +3342,17 @@ mod tests {
         assert_eq!(
             estado_identidad_pgp("otra").await.unwrap(),
             EstadoPgp::default()
+        );
+        // Los errores llegan como código pelado, no como texto descriptivo, y lo
+        // que no se puede leer es «Failed»: la ventana sólo traduce códigos.
+        assert_eq!(
+            estado_identidad_pgp("mala").await.unwrap_err(),
+            "WrongPassword"
+        );
+        assert_eq!(estado_identidad_pgp("rota").await.unwrap_err(), "Failed");
+        assert_eq!(
+            quitar_identidad_pgp("mala").await.unwrap_err(),
+            "WrongPassword"
         );
         quitar_identidad_pgp("ana").await.unwrap();
         assert_eq!(*sync.pgp_removed.lock().unwrap(), vec!["ana".to_string()]);

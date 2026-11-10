@@ -569,6 +569,67 @@ describe('la tarjeta de OpenPGP: cada error tiene su mensaje', () => {
 		expect(new Set(claves.map((c) => es[c])).size).toBe(6);
 	});
 
+	test('un texto descriptivo que no es un código cae en el mensaje genérico, nunca se muestra crudo', async () => {
+		const descriptivo = 'no se pudo quitar la identidad PGP: connection refused';
+
+		contestar(STATE, SIN_CLAVE);
+		const importando = tarjeta();
+		await asentar();
+		await elegirArchivo(importando);
+		fallar(IMPORT, descriptivo);
+		await boton(importando, es['pgp.importar']).trigger('click');
+		await asentar();
+		expect(importando.find('[role="alert"]').text()).toBe(es['pgp.errorFailed']);
+		expect(importando.text()).not.toContain('connection refused');
+		importando.unmount();
+		vistas.delete(importando);
+		olvidarTodo();
+
+		contestar(STATE, CON_CLAVE);
+		const quitando = tarjeta();
+		await asentar();
+		fallar(REMOVE, descriptivo);
+		await boton(quitando, es['pgp.quitar']).trigger('click');
+		await asentar();
+		expect(quitando.find('[role="alert"]').text()).toBe(es['pgp.errorFailed']);
+		quitando.unmount();
+		vistas.delete(quitando);
+		olvidarTodo();
+
+		fallar(STATE, descriptivo);
+		const consultando = tarjeta();
+		await asentar();
+		expect(consultando.find('[role="alert"]').text()).toBe(es['pgp.errorFailed']);
+	});
+
+	test('al consultar el estado, un código pelado se traduce a su mensaje propio', async () => {
+		for (const [codigo, clave] of [
+			['KeyringLocked', 'pgp.errorKeyringLocked'],
+			['Failed', 'pgp.errorFailed'],
+		]) {
+			olvidarTodo();
+			fallar(STATE, codigo);
+			const vista = tarjeta();
+			await asentar();
+			expect(vista.find('[role="alert"]').text()).toBe(es[clave]);
+			vista.unmount();
+			vistas.delete(vista);
+		}
+	});
+
+	test('dos clics seguidos en «Quitar» mandan una sola orden', async () => {
+		contestar(STATE, CON_CLAVE);
+		const vista = tarjeta();
+		await asentar();
+
+		const el = boton(vista, es['pgp.quitar']).element as HTMLElement;
+		el.click();
+		el.click();
+		await asentar();
+
+		expect(invocaciones.filter((i) => i.comando === REMOVE)).toHaveLength(1);
+	});
+
 	test('un error al quitar sale traducido y la clave sigue a la vista', async () => {
 		contestar(STATE, CON_CLAVE);
 		const vista = tarjeta();
